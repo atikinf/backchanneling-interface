@@ -1,0 +1,33 @@
+:root {
+  --interface-width: 70%;
+}
+
+/* Main container */
+#container {
+  width: var(--interface-width);
+  margin: 0px auto
+}
+
+/* Video Block */
+.video-container {
+  padding-top: 75%;
+  height: 0px;
+  position: relative;
+}
+
+video {
+  top: 0;
+  left: 0;
+  position: absolute;
+  width: 100%;
+  height: 100%;
+  /* margin: 0px 0px 0px 0px; */
+  background-color: #ddd;
+  border-radius: 7px;
+}
+
+/* Interface Block */
+button {
+  width: 100%;
+  /* margin: 10px 0px 0px 10px !important; */
+}

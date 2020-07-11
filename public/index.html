@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.0/css/bootstrap.min.css" integrity="sha384-9aIt2nRpC12Uk9gS9baDl411NQApFmC26EwAOH8WgZl5MYYxFfc+NcPb1dKGj7Sk" crossorigin="anonymous">
+    <link rel="stylesheet" type="text/css" href="style.css">
+  </head>
+  <body>
+    <div id="container">
+      <br />
+
+      <h2>Simple Video Chat</h2>
+
+      <br />
+
+      <div class="row" id="videos-block">
+        <div class="col-md-6">
+          <div class="video-container">
+            <video id="yourVideo" autoplay muted playsinline></video>
+          </div>
+        </div>
+        <div class="col-md-6">
+          <div class="video-container">
+            <video id="friendsVideo" autoplay playsinline></video>
+          </div>
+        </div>
+      </div>
+
+      <br />
+
+      <div class="input-group"> 
+        <input type="text" class="form-control" id="room-number-input" placeholder="Enter a Room # (Default: 1)" aria-label="Room Number">
+        <div class="input-group-append">
+          <button class="btn btn-outline-secondary" type="button" id="join-room-button">Join Room</button>
+        </div>
+      </div>
+
+      <br />
+
+      <div id="recording-block" style="display:none">
+        <div class="btn-group" role="group" aria-label="Recording buttons">
+          <button type="button" class="btn btn-secondary btn-danger" id="record">Start Recording</button>
+          <button type="button" class="btn btn-secondary" id="stop-recording" disabled>Stop Recording</button>
+        </div>
+      </div>
+
+
+      <!-- <script src="https://cdn.socket.io/socket.io-1.0.0.js"></script> -->
+      <script src="/socket.io/socket.io.js"></script>
+      <script src="/RecordRTC.js"></script>
+      <script src="client.js"></script>
+    </div>
+  </body>
+</html>
