@@ -4,6 +4,7 @@ const http = require('http').Server(app);
 const io = require('socket.io')(http);
 
 app.use(express.static('public'));
+app.use('/scripts', express.static(__dirname + '/node_modules'));
 
 // Signaling handlers
 
@@ -46,6 +47,14 @@ io.on('connection', socket => {
 
     socket.on('answer', event => {
         socket.broadcast.to(event.room).emit('answer', event.sdp);
+    });
+    
+    socket.on('recording', room => {
+        socket.to(room).emit('recording', room);
+    });
+
+    socket.on('stop recording', room => {
+        socket.to(room).emit('stop recording', room);
     });
 });
 
