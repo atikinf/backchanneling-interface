@@ -41,10 +41,26 @@ const iceServers = {
         'credential': 'webrtc',
         'username': 'websitebeaver@mail.com'}]
 };
-const streamConstraints = { audio: true, video: true };
+const streamConstraints = { 
+    audio: true, 
+    video: { 
+        width: 960, 
+        height: 720, 
+        framerate: {
+            ideal: 25,
+            max: 30,
+        },
+    },
+};
 const recordingOptions = { 
-    
-    
+    type: 'video',
+    video: {
+        width: 960,
+        height: 720,
+    },
+    framerate: {
+        exact: 20,
+    },
 };
 
 // Connect to socket.io server
@@ -71,7 +87,7 @@ socket.on('created', (room) => {
         isCaller = true;
     })
     .catch(err => {
-        alert("An error occured when accessing your media devices. Please confirm you have a working webcam and microphone");
+        alert("An error occured when accessing your media devices. Please ensure you have a working webcam and microphone");
         console.log('An error occured when accessing media devices');
     });
 });
@@ -214,13 +230,9 @@ function setupRecordInterface() {
         })
 
         // One recorder for each video feed
-        localRec = RecordRTC(localStream, {
-            type: 'video',
-        })
+        localRec = RecordRTC(localStream, recordingOptions)
 
-        remoteRec = RecordRTC(remoteStream, {
-            type: 'video',
-        });
+        remoteRec = RecordRTC(remoteStream, recordingOptions);
 
         localRec.startRecording();
         remoteRec.startRecording();
