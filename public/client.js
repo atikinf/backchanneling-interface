@@ -1,6 +1,6 @@
 // TODO: rtcPeerConnection.addStream() is deprecated
 
-// based in part on https://webrtc.ventures/2018/07/tutorial-build-video-conference-application-webrtc-2/
+// Based in part on https://webrtc.ventures/2018/07/tutorial-build-video-conference-application-webrtc-2/
 
 // DOM elements
 const joinRoomButton = document.getElementById('join-room-button');
@@ -27,7 +27,7 @@ var localRec;
 var remoteRec;
 var dateStarted;
 
-var isCaller; // Whether you are the caller or not
+var isCaller;
 
 
 // Constants

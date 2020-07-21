@@ -8,6 +8,10 @@
   margin: 0px auto
 }
 
+.videos-block {
+  position: relative;
+}
+
 /* Video Block */
 .video-container {
   padding-top: 75%;
@@ -42,6 +46,16 @@ video {
   height: 100%;
   width: auto;
 }
+
+#friends-video-container {
+  position: absolute;
+  bottom: 0;
+  right: 0;
+  width: 20%;
+  height: 20%;
+}
+
+/* Buttons/Interface Stuff */
 
 #progress-bar {
   background-color: grey;
