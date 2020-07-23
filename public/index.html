@@ -11,73 +11,65 @@
       <h2>Data Collection Interface</h2>
 
       <br />
-<!-- 
-      <div class="row" id="videos-block">
-        <div class="col-md-6">
-          <div id="overlay-container" style="display: none;">
-            <img src="images/HeadDottedOutline.png" id="video-overlay">
-          </div>
-          <div class="video-container">
-            <video id="your-video" autoplay muted playsinline></video>
-          </div>
-        </div>
-        <div class="col-md-6">
-          <div class="video-container">
-            <video id="friends-video" autoplay playsinline></video>
-          </div>
-        </div>
-      </div> -->
 
-      <div class="videos-block">
-        <div id="your-video-container">
-          <div id="overlay-container" style="display: none;">
-            <img src="images/HeadDottedOutline.png" id="video-overlay">
+      <div class="row">
+        <div class="col-md-4">
+          <div class="input-group"> 
+            <input type="text" class="form-control" id="room-number-input" placeholder="Enter a Room # (Default: 1)" aria-label="Room Number">
+            <div class="input-group-append">
+              <button class="btn btn-outline-secondary" type="button" id="join-room-button">Join Room</button>
+            </div>
           </div>
-          <div class="video-container">
-            <video id="your-video" autoplay muted playsinline></video>
+    
+          <br />
+    
+          <div class="recording-block row collapse">
+            <div class="col-12">
+              <button type="button" class="btn btn-primary btn-block" id="btn-start-recording">Start Recording</button>
+            </div>
+          </div>
+    
+          <br />
+
+          <div class="recording-block row collapse">
+            <div class="col-12">
+              <button type="button" class="btn btn-primary btn-block" id="btn-stop-recording" disabled>Stop Recording</button>
+            </div>
+          </div>
+
+          <br />
+    
+          <div class="row download-block collapse">
+            <div class="col-12">
+              <a role="button" class="btn btn-primary btn-block disabled" id="btn-download-recording">Download Recording</a>
+            </div>
+          </div>
+    
+          <div class="progress download-block collapse">
+            <div class="progress-bar progress-bar-striped active" role="progressbar" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100" id="progress-bar">
+              0%
+            </div>
           </div>
         </div>
-        <div id="friends-video-container">
-          <div class="video-container">
-            <video id="friends-video" autoplay playsinline></video>
+
+        <div class="col-md-8">
+          <div class="videos-block">
+            <div id="your-video-container">
+              <div id="overlay-container" style="display: none;">
+                <img src="images/HeadDottedOutline.png" id="video-overlay">
+              </div>
+              <div class="video-container">
+                <video id="your-video" autoplay muted playsinline></video>
+              </div>
+            </div>
+            <div id="friends-video-container">
+              <div class="video-container">
+                <video id="friends-video" autoplay playsinline></video>
+              </div>
+            </div>
           </div>
         </div>
       </div>
-
-      <br />
-
-      <div class="input-group"> 
-        <input type="text" class="form-control" id="room-number-input" placeholder="Enter a Room # (Default: 1)" aria-label="Room Number">
-        <div class="input-group-append">
-          <button class="btn btn-outline-secondary" type="button" id="join-room-button">Join Room</button>
-        </div>
-      </div>
-
-      <br />
-
-      <div class="row recording-block collapse">
-        <div class="col-6">
-          <button type="button" class="btn btn-primary btn-block" id="btn-start-recording">Start Recording</button>
-        </div>
-        <div class="col-6">
-          <button type="button" class="btn btn-primary btn-block" id="btn-stop-recording" disabled>Stop Recording</button>
-        </div>
-      </div>
-
-      <br />
-
-      <div class="row download-block collapse">
-        <div class="col-12">
-          <a role="button" class="btn btn-primary btn-block disabled" id="btn-download-recording">Download Recording</a>
-        </div>
-      </div>
-
-      <div class="progress download-block collapse">
-        <div class="progress-bar progress-bar-striped active" role="progressbar" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100" id="progress-bar">
-          0%
-        </div>
-      </div>
-      
 
       <!-- <script src="https://cdn.socket.io/socket.io-1.0.0.js"></script> -->
       <script src="/socket.io/socket.io.js"></script>
