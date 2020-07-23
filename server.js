@@ -2,7 +2,9 @@ const express = require('express');
 const app = express();
 const http = require('http').Server(app);
 const io = require('socket.io')(http);
-const kurento = require('kurento-client');
+// var kurento = require('kurento-client');
+// var minimist = require('minimist');
+
 
 
 app.use(express.static('public'));
@@ -11,14 +13,8 @@ app.use('/scripts', express.static(__dirname + '/node_modules'));
 // variables
 var kurentoClient = null;
 var iceCandidateQueues = {};
-
-// constants
-// const argv = minimist(process.argv.slice(2), {
-//     default: {
-//         as_uri: 'http://localhost:3000/', // app server
-//         ws_uri: 'ws://localhost:8888/kurento' // web server
-//     }
-// });
+var pipelines = {};
+var idCounter = 0;
 
 
 // Signaling handlers
@@ -30,22 +26,62 @@ io.on('connection', socket => {
         console.log('a user disconnected');
     });
 
-    socket.on('message', function (message) {
-        console.log('Message received: ', message.event);
+    socket.on('create or join', roomNumber => {
+        // handleRoom(socket, roomNumber, (err, room) => {
+
+        // });
+        let room = io.sockets.adapter.rooms[roomNumber] || { length: 0 };
+        let numClients = room.length;
+        console.log(roomNumber, 'has', numClients, 'clients');   
         
-        switch (message.event) {
-            case 'create or join':
-                createOrJoin(socket, message.roomNumber);
-                break;
-            case 'joinRoom': 
-                // 
-                break;
-            case 'receiveVideoFrom':
-                //
-                break;
-            case 'candidate':
-                //
-                break;
+        if (numClients == 0) { 
+            // joins room and emits 'created'
+            socket.join(roomNumber);
+            socket.emit('created', roomNumber);
+            // createRoom(socket, room, (err, myRoom) => {
+            //     // Add a webrtcendpoint to the pipeline
+            //     myRoom.pipeline.create('WebRtcEndpoint', (err, outgoingMedia) => {
+            //         if (err) {
+            //             return console.log(err);
+            //         }
+
+            //         var user = {
+            //             id: socket.id,
+            //             name: 'host',
+            //             outgoingMedia: outgoingMedia,
+            //             incomingMedia: {},
+            //         };
+
+            //         let iceCandidateQueue = iceCandidateQueues[user.id];
+            //         if (iceCandidateQueue) {
+            //             while (iceCandidateQueue.length) {
+            //                 let ice = iceCandidateQueue.shift();
+            //                 console.error(`user: ${user.name} collect candidate for outgoing media`);
+            //                 user.outgoingMedia.addIceCandidate(ice.candidate);
+            //             }
+            //         }
+
+            //         user.outgoingMedia.on('OnIceCandidate', event => {
+            //             let candidate = kurento.register.complexTypes.IceCandidate(event.candidate);
+            //             socket.emit('message', {
+            //                 event: 'candidate',
+            //                 userid: user.id,
+            //                 username: user.name,
+            //             });
+            //         });
+
+            //         socket.to(roomname).emit('message', {
+            //             event: 'newParticipantArrived',
+            //             userid: user.id,
+            //             username: user.name,
+            //         });
+            //     });
+            // });
+        } else if (numClients == 1) {
+            socket.join(roomNumber);
+            socket.emit('joined', roomNumber);
+        } else {
+            socket.emit('full', roomNumber);
         }
     });
 
@@ -76,47 +112,24 @@ io.on('connection', socket => {
     });
 });
 
-function createOrJoin(socket, roomNumber, callback) {
-    getRoom(socket, roomNumber, (err, myRoom) => {
-        if (err) {
-            return callback(err);
-        }
+// Create a media pipeline for a room and emit created
+function createRoom(socket, roomNumber, callback) {
+    socket.join(roomNumber, () => {
+        let myRoom = io.sockets.adapter.rooms[roomNumber];
+        getKurentoClient((error, kurento) => {
+            kurento.create('MediaPipeline', (err, pipeline) => {
+                if (error) {
+                    return callback(err);
+                }
 
-        myRoom.pipeline.create('WebRtcEndpoint', (err, outgoingMedia))
-    })
-}
-
-
-function getRoom(socket, roomNumber, callback) {
-    let myRoom = io.sockets.adapter.rooms[roomNumber] || { length: 0 };
-    let numClients = myRoom.length;
-
-    console.log(roomNumber, ' has ', numClients, ' clients');
-
-    if (numClients == 0) {
-        socket.join(roomNumber, () => {
-            myRoom = io.sockets.adapter.rooms[roomNumber];
-            getKurentoClient((error, kurento) => {
-                kurento.create('MediaPipeline', (err, pipeline) => {
-                    if (error) {
-                        return callback(err);
-                    }
-
-                    myRoom.pipeline = pipeline;
-                    myRoom.participants = {};
-                    callback(null, myRoom);
-                });
+                myRoom.pipeline = pipeline;
+                myRoom.participants = {};
+                callback(null, myRoom);
             });
         });
-    } else if (numClients == 1) {
-        socket.join(roomNumber);
-        callback(null, myRoom);
-    } else {
-        socket.emit('full', roomNumber);
-        // do not run the callback
-    }
+    });
+    socket.emit('created', roomNumber);
 }
-
 
 function getKurentoClient(callback) {
     if (kurentoClient !== null) {

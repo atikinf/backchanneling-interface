@@ -73,12 +73,8 @@ joinRoomButton.addEventListener('click', () => {
         roomNumber = roomNumberInput.value;
     }
     overlayContainer.style.display = "block";
-    const message = {
-        event: 'create or join',
-        roomNumber: roomNumber,
-    }
-    socket.emit('message', message);
-    // socket.emit('create or join', roomNumber);
+    
+    socket.emit('create or join', roomNumber);
 });
 
 // When server emits created
