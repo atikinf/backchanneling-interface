@@ -3,7 +3,7 @@ const app = express();
 const http = require('http').Server(app);
 const io = require('socket.io')(http);
 // var kurento = require('kurento-client');
-// var minimist = require('minimist');
+var minimist = require('minimist');
 
 
 
@@ -12,9 +12,13 @@ app.use('/scripts', express.static(__dirname + '/node_modules'));
 
 // variables
 var kurentoClient = null;
-var iceCandidateQueues = {};
-var pipelines = {};
-var idCounter = 0;
+
+var argv = minimist(process.argv.slice(2), {
+    default: {
+        as_uri: 'http://localhost:3000/',
+        ws_uri: 'ws://localhost:8888/kurento'
+    }
+});
 
 
 // Signaling handlers
@@ -26,57 +30,14 @@ io.on('connection', socket => {
         console.log('a user disconnected');
     });
 
-    socket.on('create or join', roomNumber => {
-        // handleRoom(socket, roomNumber, (err, room) => {
-
-        // });
+    socket.on('join', roomNumber => {
         let room = io.sockets.adapter.rooms[roomNumber] || { length: 0 };
         let numClients = room.length;
         console.log(roomNumber, 'has', numClients, 'clients');   
         
         if (numClients == 0) { 
-            // joins room and emits 'created'
             socket.join(roomNumber);
             socket.emit('created', roomNumber);
-            // createRoom(socket, room, (err, myRoom) => {
-            //     // Add a webrtcendpoint to the pipeline
-            //     myRoom.pipeline.create('WebRtcEndpoint', (err, outgoingMedia) => {
-            //         if (err) {
-            //             return console.log(err);
-            //         }
-
-            //         var user = {
-            //             id: socket.id,
-            //             name: 'host',
-            //             outgoingMedia: outgoingMedia,
-            //             incomingMedia: {},
-            //         };
-
-            //         let iceCandidateQueue = iceCandidateQueues[user.id];
-            //         if (iceCandidateQueue) {
-            //             while (iceCandidateQueue.length) {
-            //                 let ice = iceCandidateQueue.shift();
-            //                 console.error(`user: ${user.name} collect candidate for outgoing media`);
-            //                 user.outgoingMedia.addIceCandidate(ice.candidate);
-            //             }
-            //         }
-
-            //         user.outgoingMedia.on('OnIceCandidate', event => {
-            //             let candidate = kurento.register.complexTypes.IceCandidate(event.candidate);
-            //             socket.emit('message', {
-            //                 event: 'candidate',
-            //                 userid: user.id,
-            //                 username: user.name,
-            //             });
-            //         });
-
-            //         socket.to(roomname).emit('message', {
-            //             event: 'newParticipantArrived',
-            //             userid: user.id,
-            //             username: user.name,
-            //         });
-            //     });
-            // });
         } else if (numClients == 1) {
             socket.join(roomNumber);
             socket.emit('joined', roomNumber);
@@ -86,23 +47,24 @@ io.on('connection', socket => {
     });
 
     // Re-broadcasters
-
+    
+    // broadcast by the second participant when they enter the room
     socket.on('ready', room => {
         socket.broadcast.to(room).emit('ready');
     });
 
+    // broadcast an ice candidate to the other client
     socket.on('candidate', event => {
         socket.broadcast.to(event.room).emit('candidate', event);
     });
 
+    // broadcast an offer SDP to the other client
     socket.on('offer', event => {
-        socket.broadcast.to(event.room).emit('offer', event.sdp);
-    });
-
-    socket.on('answer', event => {
-        socket.broadcast.to(event.room).emit('answer', event.sdp);
+        socket.broadcast.to(event.room).emit('offer', event);
     });
     
+    // Recording stuff, broadcasted to all clients
+
     socket.on('recording', room => {
         socket.to(room).emit('recording', room);
     });

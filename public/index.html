@@ -22,6 +22,12 @@
           </div>
     
           <br />
+
+          <div class="row">
+            <button class="btn btn-primary btn-block disabled">Call</button>
+          </div>
+
+          <br />
     
           <div class="recording-block row collapse">
             <div class="col-12">
@@ -71,21 +77,12 @@
         </div>
       </div>
 
-      <!-- <script src="https://cdn.socket.io/socket.io-1.0.0.js"></script> -->
       <script src="/socket.io/socket.io.js"></script>
       <script src="https://cdnjs.cloudflare.com/ajax/libs/RecordRTC/5.6.1/RecordRTC.js"></script>
       <script src="scripts/jszip/dist/jszip.min.js"></script>
       <script src="https://cdn.jsdelivr.net/npm/async@3.2.0/dist/async.min.js"></script>
-      <script>
-        function SaveAsFile(t,f,m) {
-          try {
-              var b = new Blob([t],{type:m});
-              saveAs(b, f);
-          } catch (e) {
-              window.open("data:"+m+"," + encodeURIComponent(t), '_blank','');
-          }
-        }
-      </script>  
+      <script src="http://builds.openvidu.io/release/6.14.0/js/kurento-utils.min.js"></script>
+    
       <script src="client.js"></script>
     </div>
   </body>

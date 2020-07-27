@@ -5,8 +5,8 @@
 // DOM elements
 const joinRoomButton = document.getElementById('join-room-button');
 const roomNumberInput = document.getElementById('room-number-input');
-const yourVideo  = document.getElementById('your-video');
-const friendsVideo = document.getElementById('friends-video');
+const localVideo  = document.getElementById('your-video');
+const remoteVideo = document.getElementById('friends-video');
 const startRecording = document.getElementById('btn-start-recording');
 const stopRecording = document.getElementById('btn-stop-recording');
 const downloadRecording = document.getElementById('btn-download-recording');
@@ -32,15 +32,6 @@ var isCaller;
 
 // Constants
 
-// STUN/TURN servers
-const iceServers = {
-    'iceServers': [
-        {'urls': 'stun:stun.services.mozilla.com'}, 
-        {'urls': 'stun:stun.l.google.com:19302'}, 
-        {'urls': 'turn:numb.viagenie.ca',
-        'credential': 'webrtc',
-        'username': 'websitebeaver@mail.com'}]
-};
 const streamConstraints = { 
     audio: true, 
     video: { 
@@ -52,6 +43,7 @@ const streamConstraints = {
         },
     },
 };
+// Used with RecordRTC
 const recordingOptions = { 
     type: 'video',
     video: {
@@ -62,6 +54,7 @@ const recordingOptions = {
         exact: 20,
     },
 };
+ 
 
 // Connect to socket.io server
 var socket = io()
@@ -74,90 +67,90 @@ joinRoomButton.addEventListener('click', () => {
     }
     overlayContainer.style.display = "block";
     
-    socket.emit('create or join', roomNumber);
+    socket.emit('join', roomNumber);
 });
 
-// When server emits created
+// When server emits created, a pipeline has been created for the room
+// and our socket has joined that room
 socket.on('created', (room) => {
-    console.log("Got created signal, setting up stream");
-    navigator.mediaDevices.getUserMedia(streamConstraints)
-    .then(stream => {
-        console.log("Setting up stream");
-        localStream = stream;
-        yourVideo.srcObject = stream;
-        isCaller = true;
-    })
-    .catch(err => {
-        alert("An error occured when accessing your media devices. Please ensure you have a working webcam and microphone");
-        console.log('An error occured when accessing media devices');
-    });
+    console.log('Got created signal for room', room, 'setting up stream');
+
+    // Specifications for a Kurento WebRTCPeer
+    const options = {
+        localVideo: localVideo,
+        remoteVideo: remoteVideo,
+        onicecandidate : onIceCandidate,
+        mediaConstraints: streamConstraints
+    };
+
+    // Create a connection to send/receive video 
+    rtcPeerConnection = kurentoUtils.WebRtcPeer.WebRtcPeerSendrecv(options, 
+        function (err) {
+            if (err) {
+                return console.error(err);
+            }
+            this.generateOffer(onOffer);
+        }
+    );
+
+    var onOffer = function(err, offer, wp) {
+        console.log('sending an offer:', offer);
+        socket.emit('offer', {
+            type: 'offer',
+            sdp: offer,
+            room: roomNumber,
+        });
+    }
 });
 
 // When server emits joined
 socket.on('joined', (room) => {
-    console.log('Someone joined', room);
-    navigator.mediaDevices.getUserMedia(streamConstraints)
-    .then(stream => {
-        localStream = stream;
-        yourVideo.srcObject = stream;
-        socket.emit('ready', roomNumber);
-    })
-    .catch(err => {
-        alert("An error occured when accessing your media devices. Please confirm you have a working webcam and microphone");
-        console.log('An error occured when accessing media devices');
-    });
+    console.log('Got joined signal for room', room,);
+
+    // Specifications for a Kurento WebRTCPeer
+    const options = {
+        localVideo: localVideo,
+        remoteVideo: remoteVideo,
+        onicecandidate : onIceCandidate,
+        mediaConstraints: streamConstraints
+    };
+
+    // Create a connection to send/receive video 
+    rtcPeerConnection = kurentoUtils.WebRtcPeer.WebRtcPeerSendrecv(options, 
+        function (err) {
+            if (err) {
+                return console.error(err);
+            }
+            this.generateOffer(onOffer);
+        }
+    );
+
+    var onOffer = function(err, offer, wp) {
+        console.log('sending an offer:', offer);
+        socket.emit('offer', {
+            type: 'offer',
+            sdp: offer,
+            room: roomNumber,
+        });
+
+        socket.emit('ready');
+    }
 });
 
-// When server emits ready
+// There are two clients in a room
 socket.on('ready', () => {
-    if (isCaller) {
-        rtcPeerConnection = new RTCPeerConnection(iceServers);
-
-        // add event listeners to the connection
-        rtcPeerConnection.onicecandidate = onIceCandidate;
-        rtcPeerConnection.onaddstream = onAddStream;
-
-        rtcPeerConnection.addStream(localStream);
-
-        // prepare an offer
-        rtcPeerConnection.createOffer(setLocalAndOffer, e => console.log(e));
-        setupRecordInterface();
-    }
+    setupRecordInterface();
 });
 
-
-// When server emits offer
+// When server emits offer, match the caller's connection with remote's own
 socket.on('offer', event => {
-    if (!isCaller) {
-        rtcPeerConnection = new RTCPeerConnection(iceServers);
-
-        // add event listeners to the connection
-        rtcPeerConnection.onicecandidate = onIceCandidate;
-        rtcPeerConnection.onaddstream = onAddStream;
-
-        rtcPeerConnection.addStream(localStream);
-
-        // prepare an offer
-        rtcPeerConnection.setRemoteDescription(new RTCSessionDescription(event));
-
-        // prepare an answer
-        rtcPeerConnection.createAnswer(setLocalAndAnswer, e => console.log(e));
-    }
+    console.log('Got SDP:', event.sdp);
+    rtcPeerConnection.processAnswer(event.sdp);
 });
 
-// When server emits answer
-socket.on('answer', event => {
-    rtcPeerConnection.setRemoteDescription(new RTCSessionDescription(event));
-});
-
-// When emits candidate 
+// When a client emits a candidate the server sends it through
 socket.on('candidate', event => {
-    const candidate = new RTCIceCandidate({
-        sdpMLineIndex: event.label,
-        candidate: event.candidate
-    });
-
-    rtcPeerConnection.addIceCandidate(candidate);
+    rtcPeerConnection.addIceCandidate(event.candidate);
 });
 
 // When server emits full
@@ -179,41 +172,15 @@ socket.on('stop recording', room => {
 
 // Callbacks and helpers
 
-function onAddStream(event) {
-    friendsVideo.srcObject = event.stream;
-    remoteStream = event.stream;
-}
-
-function onIceCandidate(event) {
-    if (event.candidate) {
-        console.log('sending ice candidate');
-        socket.emit('candidate', {
-            type: 'candidate',
-            label: event.candidate.sdpMLineIndex,
-            id: event.candidate.sdpMid,
-            candidate: event.candidate.candidate,
-            room: roomNumber
-        });
-    }
-}
-
-function setLocalAndOffer(sessionDescription) {
-    rtcPeerConnection.setLocalDescription(sessionDescription);
-    socket.emit('offer', {
-        type: 'offer',
-        sdp: sessionDescription,
-        room: roomNumber
+function onIceCandidate(candidate, wp) {
+    console.log('sending ice candidates');
+    socket.emit('candidate', {
+        type: 'candidate',
+        candidate: candidate,
+        room: roomNumber,
     });
 }
 
-function setLocalAndAnswer(sessionDescription) {
-    rtcPeerConnection.setLocalDescription(sessionDescription);
-    socket.emit('answer', {
-        type: 'answer',
-        sdp: sessionDescription,
-        room: roomNumber
-    });
-}
 
 function setupRecordInterface() {
     Array.from(recordingBlockElements).forEach(element => {
