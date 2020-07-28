@@ -1,6 +1,5 @@
-// TODO: rtcPeerConnection.addStream() is deprecated
-
 // Based in part on https://webrtc.ventures/2018/07/tutorial-build-video-conference-application-webrtc-2/
+// as well as a lot of kurento-utils tutorials
 
 // DOM elements
 const joinRoomButton = document.getElementById('join-room-button');
@@ -110,18 +109,19 @@ socket.on('joined', (event) => {
     }
 });
 
-// There are two clients in a room
+// There are two clients in a room, so set up the recording interface
+// for the first of them to arrive
 socket.on('ready', () => {
     setupRecordInterface();
 });
 
-// When server emits offer, match the caller's connection with remote's own
-socket.on('offer', event => {
-    console.log('Got SDP, processing locally...');
+// When the server emits an SDP response, process it locally
+socket.on('answer', event => {
+    console.log('Got SDP answer, processing locally...');
     rtcPeerConnection.processAnswer(event.sdpOffer);
 });
 
-// When a client emits a candidate the server sends it through
+// When the server emits an ICE candidate, process it locally
 socket.on('candidate', event => {
     console.log('God candidate, adding locally...')
     rtcPeerConnection.addIceCandidate(event.candidate);

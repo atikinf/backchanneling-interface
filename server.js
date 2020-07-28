@@ -1,10 +1,11 @@
+// Based in part on a lot of Kurento tutorials
+
 const express = require('express');
 const app = express();
 const http = require('http').Server(app);
 const io = require('socket.io')(http);
 var kurento = require('kurento-client');
 var minimist = require('minimist');
-
 
 app.use(express.static('public'));
 app.use('/scripts', express.static(__dirname + '/node_modules'));
@@ -135,10 +136,9 @@ CallMediaPipeline.prototype.createPipeline = function(callerId, calleeId, callba
 
                 callerWebRtcEndpoint.on('OnIceCandidate', function(event) {
                     var candidate = kurento.getComplexType('IceCandidate')(event.candidate);
-                    userRegistry.getById(callerId).socket.broadcast.to(usersById[callerId].room)
-                        .emit('candidate', {
-                            candidate: candidate,
-                        });
+                    userRegistry.getById(callerId).socket.emit('candidate', {
+                        candidate: candidate,
+                    });
                 });
 
                 pipeline.create('WebRtcEndpoint', function(error, calleeWebRtcEndpoint) {
@@ -156,10 +156,9 @@ CallMediaPipeline.prototype.createPipeline = function(callerId, calleeId, callba
 
                     calleeWebRtcEndpoint.on('OnIceCandidate', function(event) {
                         var candidate = kurento.getComplexType('IceCandidate')(event.candidate);
-                        userRegistry.getById(calleeId).socket.broadcast.to(usersById[calleeId].room)
-                            .emit('candidate', {
-                                candidate: candidate,
-                            });
+                        userRegistry.getById(calleeId).socket.emit('candidate', {
+                            candidate: candidate,
+                        });
                     });
 
                     callerWebRtcEndpoint.connect(calleeWebRtcEndpoint, function(error) {
@@ -285,6 +284,8 @@ io.on('connection', socket => {
 
 // When both clients have joined a room, and they have both emitted SDP offers
 function startCall(roomNumber, socket) {
+    clearCandidatesQueue();
+
     var pipeline = new CallMediaPipeline();
 
     // For the sake of readability, we'll have a caller a callee despite
@@ -302,16 +303,41 @@ function startCall(roomNumber, socket) {
 
     pipeline.createPipeline(caller.userid, callee.userid, function(err) { 
         if (err) {
-            console.log(err);
+            return console.log(err);
         }
 
         console.log("Yahoo");
-        // pipeline.generateSdpAnswer(callerId, caller)
+        pipeline.generateSdpAnswer(caller.userid, caller.sdpOffer, 
+            function(err, callerSdpAnswer) {
+                if (err) {
+                    return console.log(err);
+                }
 
-        // pipeline.generateSdpAnswer(callerId, users[callerId].sdpOffer)
+                pipeline.generateSdpAnswer(callee.userid, callee.sdpOffer,
+                    function(err, calleeSdpAnswer) {
+                        if (err) {
+                            return console.log(err);
+                        }
+                        
+                        callee.socket.emit('answer', {
+                            sdpOffer: calleeSdpAnswer,
+                        });
+
+                        caller.socket.emit('answer', {
+                            sdpOffer: callerSdpAnswer,
+                        });
+                    });
+            });
     });
 }
 
+function clearCandidatesQueue(sessionId) {
+    if (candidatesQueue[sessionId]) {
+        delete candidatesQueue[sessionId];
+    }
+}
+
+// Store an ICE candidate sent to us by a client
 function onIceCandidate(userid, _candidate) {
     var candidate = kurento.getComplexType('IceCandidate')(_candidate);
     var user = userRegistry.getById(userid);
