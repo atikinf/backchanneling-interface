@@ -29,8 +29,12 @@ var dateStarted;
 
 var isCaller;
 
+var userid;
+
 
 // Constants
+
+const maxClients = 2;
 
 const streamConstraints = { 
     audio: true, 
@@ -54,7 +58,6 @@ const recordingOptions = {
         exact: 20,
     },
 };
- 
 
 // Connect to socket.io server
 var socket = io()
@@ -70,10 +73,13 @@ joinRoomButton.addEventListener('click', () => {
     socket.emit('join', roomNumber);
 });
 
-// When server emits created, a pipeline has been created for the room
-// and our socket has joined that room
-socket.on('created', (room) => {
-    console.log('Got created signal for room', room, 'setting up stream');
+// When server emits joined, i.e. a user has joined the room
+socket.on('joined', (event) => {
+
+    console.log('Got joined signal for room', event.roomNumber, 'with', 
+        event.numClients, 'clients');
+
+    userid = event.userid;
 
     // Specifications for a Kurento WebRTCPeer
     const options = {
@@ -94,46 +100,13 @@ socket.on('created', (room) => {
     );
 
     var onOffer = function(err, offer, wp) {
-        console.log('sending an offer:', offer);
+        console.log('sending an offer');
         socket.emit('offer', {
             type: 'offer',
-            sdp: offer,
             room: roomNumber,
+            userid: userid,
+            sdpOffer: offer,
         });
-    }
-});
-
-// When server emits joined
-socket.on('joined', (room) => {
-    console.log('Got joined signal for room', room,);
-
-    // Specifications for a Kurento WebRTCPeer
-    const options = {
-        localVideo: localVideo,
-        remoteVideo: remoteVideo,
-        onicecandidate : onIceCandidate,
-        mediaConstraints: streamConstraints
-    };
-
-    // Create a connection to send/receive video 
-    rtcPeerConnection = kurentoUtils.WebRtcPeer.WebRtcPeerSendrecv(options, 
-        function (err) {
-            if (err) {
-                return console.error(err);
-            }
-            this.generateOffer(onOffer);
-        }
-    );
-
-    var onOffer = function(err, offer, wp) {
-        console.log('sending an offer:', offer);
-        socket.emit('offer', {
-            type: 'offer',
-            sdp: offer,
-            room: roomNumber,
-        });
-
-        socket.emit('ready');
     }
 });
 
@@ -144,12 +117,13 @@ socket.on('ready', () => {
 
 // When server emits offer, match the caller's connection with remote's own
 socket.on('offer', event => {
-    console.log('Got SDP:', event.sdp);
-    rtcPeerConnection.processAnswer(event.sdp);
+    console.log('Got SDP, processing locally...');
+    rtcPeerConnection.processAnswer(event.sdpOffer);
 });
 
 // When a client emits a candidate the server sends it through
 socket.on('candidate', event => {
+    console.log('God candidate, adding locally...')
     rtcPeerConnection.addIceCandidate(event.candidate);
 });
 
@@ -176,8 +150,9 @@ function onIceCandidate(candidate, wp) {
     console.log('sending ice candidates');
     socket.emit('candidate', {
         type: 'candidate',
-        candidate: candidate,
         room: roomNumber,
+        userid: userid,
+        candidate: candidate,
     });
 }
 

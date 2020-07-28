@@ -2,9 +2,8 @@ const express = require('express');
 const app = express();
 const http = require('http').Server(app);
 const io = require('socket.io')(http);
-// var kurento = require('kurento-client');
+var kurento = require('kurento-client');
 var minimist = require('minimist');
-
 
 
 app.use(express.static('public'));
@@ -12,6 +11,16 @@ app.use('/scripts', express.static(__dirname + '/node_modules'));
 
 // variables
 var kurentoClient = null;
+var userRegistry = new UserRegistry();
+var pipelines = {};
+var candidatesQueue = {};
+var idCounter = 0;
+
+function nextUniqueId() {
+    idCounter++;
+    return idCounter.toString();
+}
+
 
 var argv = minimist(process.argv.slice(2), {
     default: {
@@ -19,6 +28,177 @@ var argv = minimist(process.argv.slice(2), {
         ws_uri: 'ws://localhost:8888/kurento'
     }
 });
+
+// Represents client sessions
+function UserSession(userid, room, socket) {
+    this.userid = userid;
+    this.room = room;
+    this.socket = socket;
+    this.sdpOffer = null;
+}
+
+// Represents registrar of users
+function UserRegistry() {
+    this.usersById = {};
+    this.usersByName = {};
+    this.usersBySocketId = {};
+    this.usersByRoom = {};
+}
+
+UserRegistry.prototype.register = function(user) {
+    this.usersById[user.userid] = user;
+    this.usersByName[user.name] = user;
+    this.usersBySocketId[user.socket.id] = user;
+    this.usersByRoom[user.room] = this.usersByRoom[user.room] || [];
+    this.usersByRoom[user.room].push(user);
+}
+
+UserRegistry.prototype.unregister = function(id) {
+    var user = this.getById(id);
+    if (user) delete this.usersById[id]
+    if (user && this.getByName(user.name)) delete this.usersByName[user.name];
+    if (user && this.getBySocketId(user.socket.id)) {
+        delete this.usersBySocketId[user.socket.id];
+    }
+    if (user && this.getByRoom(user.room).length) {
+        var i;
+        for (i = 0; i < this.usersByRoom[user.room].length; i++) {
+            if (this.usersByRoom[user.room][i].userid == id) {
+                delete this.usersByRoom[user.room][i];
+                break;
+            }
+        }
+    }
+}
+
+UserRegistry.prototype.getById = function(id) {
+    return this.usersById[id];
+}
+
+UserRegistry.prototype.getByName = function(name) {
+    return this.usersByName[name];
+}
+
+UserRegistry.prototype.getBySocketId = function(name) {
+    return this.usersBySocketId[name];
+}
+
+UserRegistry.prototype.getByRoom = function(room) {
+    return this.usersByRoom[room] || [];
+}
+
+UserRegistry.prototype.removeById = function(id) {
+    var userSession = this.usersById[id];
+    if (!userSession) return;
+    delete this.usersById[id];
+    delete this.usersByName[userSession.name];
+    delete this.usersBySocketId[userSession.socket.id];
+    var i;
+    for (i = 0; i < this.usersByRoom[userSession.room].length; i++) {
+        if (this.usersByRoom[userSession.room][i].userid == id) {
+            this.usersByRoom[userSession.room].splice(i, 1);
+            break;
+        }
+    }
+}
+
+// Represents an active call
+function CallMediaPipeline() {
+    this.pipeline = null;
+    this.webRtcEndpoint = {};
+}
+
+CallMediaPipeline.prototype.createPipeline = function(callerId, calleeId, callback) {
+    var self = this;
+    getKurentoClient(function(error, kurentoClient) {
+        if (error) {
+            return callback(error);
+        }
+
+        kurentoClient.create('MediaPipeline', function(error, pipeline) {
+            if (error) {
+                return callback(error);
+            }
+
+            pipeline.create('WebRtcEndpoint', function(error, callerWebRtcEndpoint) {
+                if (error) {
+                    pipeline.release();
+                    return callback(error);
+                }
+
+                if (candidatesQueue[callerId]) {
+                    while(candidatesQueue[callerId].length) {
+                        var candidate = candidatesQueue[callerId].shift();
+                        callerWebRtcEndpoint.addIceCandidate(candidate);
+                    }
+                }
+
+                callerWebRtcEndpoint.on('OnIceCandidate', function(event) {
+                    var candidate = kurento.getComplexType('IceCandidate')(event.candidate);
+                    userRegistry.getById(callerId).socket.broadcast.to(usersById[callerId].room)
+                        .emit('candidate', {
+                            candidate: candidate,
+                        });
+                });
+
+                pipeline.create('WebRtcEndpoint', function(error, calleeWebRtcEndpoint) {
+                    if (error) {
+                        pipeline.release();
+                        return callback(error);
+                    }
+
+                    if (candidatesQueue[calleeId]) {
+                        while(candidatesQueue[calleeId].length) {
+                            var candidate = candidatesQueue[calleeId].shift();
+                            calleeWebRtcEndpoint.addIceCandidate(candidate);
+                        }
+                    }
+
+                    calleeWebRtcEndpoint.on('OnIceCandidate', function(event) {
+                        var candidate = kurento.getComplexType('IceCandidate')(event.candidate);
+                        userRegistry.getById(calleeId).socket.broadcast.to(usersById[calleeId].room)
+                            .emit('candidate', {
+                                candidate: candidate,
+                            });
+                    });
+
+                    callerWebRtcEndpoint.connect(calleeWebRtcEndpoint, function(error) {
+                        if (error) {
+                            pipeline.release();
+                            return callback(error);
+                        }
+
+                        calleeWebRtcEndpoint.connect(callerWebRtcEndpoint, function(error) {
+                            if (error) {
+                                pipeline.release();
+                                return callback(error);
+                            }
+                        });
+
+                        self.pipeline = pipeline;
+                        self.webRtcEndpoint[callerId] = callerWebRtcEndpoint;
+                        self.webRtcEndpoint[calleeId] = calleeWebRtcEndpoint;
+                        callback(null);
+                    });
+                });
+            });
+        });
+    })
+}
+
+CallMediaPipeline.prototype.generateSdpAnswer = function(id, sdpOffer, callback) {
+    this.webRtcEndpoint[id].processOffer(sdpOffer, callback);
+    this.webRtcEndpoint[id].gatherCandidates(function(error) {
+        if (error) {
+            return callback(error);
+        }
+    });
+}
+
+CallMediaPipeline.prototype.release = function() {
+    if (this.pipeline) this.pipeline.release();
+    this.pipeline = null;
+}
 
 
 // Signaling handlers
@@ -28,43 +208,72 @@ io.on('connection', socket => {
 
     socket.on('disconnect', () => {
         console.log('a user disconnected');
+        // clean up deleted user
+        let userSession = userRegistry.getBySocketId(socket.id);
+        if (userSession) {
+            userRegistry.removeById(userSession.userid);
+
+            let remainingUsers = userRegistry.getByRoom(userSession.room).length;
+            console.log('Room', userSession.room, 'now has', 
+                        remainingUsers, 'clients');
+        }
+        socket.disconnect();
     });
 
     socket.on('join', roomNumber => {
         let room = io.sockets.adapter.rooms[roomNumber] || { length: 0 };
         let numClients = room.length;
-        console.log(roomNumber, 'has', numClients, 'clients');   
         
-        if (numClients == 0) { 
-            socket.join(roomNumber);
-            socket.emit('created', roomNumber);
-        } else if (numClients == 1) {
-            socket.join(roomNumber);
-            socket.emit('joined', roomNumber);
-        } else {
+        if (numClients > 1) {
             socket.emit('full', roomNumber);
+        } else {
+            socket.join(roomNumber);
+
+            // Register a new user (i.e. a client)
+            const userid = nextUniqueId();
+            userRegistry.register(new UserSession(userid, 
+                                                  roomNumber, 
+                                                  socket));
+
+            socket.emit('joined', {
+                room: roomNumber,
+                userid: userid,
+                numClients: numClients + 1 // to account for this new client
+            });
+            
+
+            console.log('Room', roomNumber, 'now has', numClients + 1, 'clients');   
         }
     });
 
     // Re-broadcasters
     
-    // broadcast by the second participant when they enter the room
+    // both clients are in the room, start call
     socket.on('ready', room => {
         socket.broadcast.to(room).emit('ready');
     });
 
-    // broadcast an ice candidate to the other client
-    socket.on('candidate', event => {
-        socket.broadcast.to(event.room).emit('candidate', event);
+    // Store a client's generated SDP offer and connect the call if both clients 
+    // are ready
+    socket.on('offer', event => {
+        console.log('Processing an SDP offer from', event.userid);
+        userRegistry.getById(event.userid).sdpOffer = event.sdpOffer;
+
+        if (userRegistry.getByRoom(event.room).length > 1) {
+            // Pass in the second client's socket
+            startCall(event.room, socket);
+        }
+        // socket.broadcast.to(event.room).emit('offer', event);
     });
 
-    // broadcast an offer SDP to the other client
-    socket.on('offer', event => {
-        socket.broadcast.to(event.room).emit('offer', event);
+    // broadcast an ice candidate to the other client
+    socket.on('candidate', event => {
+        console.log('Processing an ICE candidate from', event.userid);
+        onIceCandidate(event.userid, event.candidate);
+        // socket.broadcast.to(event.room).emit('candidate', event);
     });
     
     // Recording stuff, broadcasted to all clients
-
     socket.on('recording', room => {
         socket.to(room).emit('recording', room);
     });
@@ -74,23 +283,49 @@ io.on('connection', socket => {
     });
 });
 
-// Create a media pipeline for a room and emit created
-function createRoom(socket, roomNumber, callback) {
-    socket.join(roomNumber, () => {
-        let myRoom = io.sockets.adapter.rooms[roomNumber];
-        getKurentoClient((error, kurento) => {
-            kurento.create('MediaPipeline', (err, pipeline) => {
-                if (error) {
-                    return callback(err);
-                }
+// When both clients have joined a room, and they have both emitted SDP offers
+function startCall(roomNumber, socket) {
+    var pipeline = new CallMediaPipeline();
 
-                myRoom.pipeline = pipeline;
-                myRoom.participants = {};
-                callback(null, myRoom);
-            });
-        });
+    // For the sake of readability, we'll have a caller a callee despite
+    // no caller literally initiating a call with a callee
+    let users = userRegistry.getByRoom(roomNumber);
+    if (users.length < 2) {
+        return console.error('There are only', users.length, 'users in room', roomNumber);
+    }
+    let caller = users[0];
+    let callee = users[1];
+
+
+    pipelines[caller.userid] = pipeline;
+    pipelines[callee.userid] = pipeline;
+
+    pipeline.createPipeline(caller.userid, callee.userid, function(err) { 
+        if (err) {
+            console.log(err);
+        }
+
+        console.log("Yahoo");
+        // pipeline.generateSdpAnswer(callerId, caller)
+
+        // pipeline.generateSdpAnswer(callerId, users[callerId].sdpOffer)
     });
-    socket.emit('created', roomNumber);
+}
+
+function onIceCandidate(userid, _candidate) {
+    var candidate = kurento.getComplexType('IceCandidate')(_candidate);
+    var user = userRegistry.getById(userid);
+
+    if (pipelines[user.id] && pipelines[user.userid].webRtcEndpoint && pipelines[user.id].webRtcEndpoint[user.id]) {
+        var webRtcEndpoint = pipelines[user.userid].webRtcEndpoint[user.userid];
+        webRtcEndpoint.addIceCandidate(candidate);
+    }
+    else {
+        if (!candidatesQueue[user.userid]) {
+            candidatesQueue[user.userid] = [];
+        }
+        candidatesQueue[userid].push(candidate);
+    }
 }
 
 function getKurentoClient(callback) {
@@ -109,6 +344,8 @@ function getKurentoClient(callback) {
         callback(null, kurentoClient);
     });
 }
+
+
 
 // listener
 http.listen(3000, () => {
