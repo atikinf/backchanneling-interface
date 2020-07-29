@@ -8,7 +8,8 @@ var kurento = require('kurento-client');
 var minimist = require('minimist');
 
 app.use(express.static('public'));
-app.use('/scripts', express.static(__dirname + '/node_modules'));
+app.use('/node_scripts', express.static(__dirname + '/node_modules'));
+app.use('/bower_scripts', express.static(__dirname + '/bower_components'));
 
 // variables
 var kurentoClient = null;
@@ -31,10 +32,12 @@ function nextUniqueRecordingId() {
 var argv = minimist(process.argv.slice(2), {
     default: {
         as_uri: 'http://localhost:3000/',
-        ws_uri: 'ws://localhost:8888/kurento',
+        ws_uri: 'http://localhost:8888/kurento',
         recording_dir_uri: 'file:///tmp/', // directory where recordings are stored
     }
 });
+
+console.log('KMS server at', argv.ws_uri);
 
 // Represents client sessions
 function UserSession(userid, room, socket) {
