@@ -8,12 +8,12 @@ const localVideo  = document.getElementById('your-video');
 const remoteVideo = document.getElementById('friends-video');
 const startRecording = document.getElementById('btn-start-recording');
 const stopRecording = document.getElementById('btn-stop-recording');
-const downloadRecording = document.getElementById('btn-download-recording');
+// const downloadRecording = document.getElementById('btn-download-recording');
 const overlayContainer = document.getElementById('overlay-container');
-const progressBar = document.getElementById('progress-bar');
+// const progressBar = document.getElementById('progress-bar');
 
 const recordingBlockElements = document.getElementsByClassName('recording-block');
-const downloadBlockElements = document.getElementsByClassName('download-block');
+// const downloadBlockElements = document.getElementsByClassName('download-block');
 
 // Global vars
 
@@ -22,7 +22,7 @@ var localStream;
 var remoteStream;
 var rtcPeerConnection;
 
-var localRec;
+var recording;
 var remoteRec;
 var dateStarted;
 
@@ -123,26 +123,37 @@ socket.on('answer', event => {
 
 // When the server emits an ICE candidate, process it locally
 socket.on('candidate', event => {
-    console.log('God candidate, adding locally...')
+    console.log('Got candidate, adding locally...')
     rtcPeerConnection.addIceCandidate(event.candidate);
 });
 
 // When server emits full
 socket.on('full', room => {
-    alert('Room ' + roomNumber + ' is full, please join a different room.');
+    alert('Room ' + room + ' is full, please join a different room.');
 })
 
-// When server emits recording
-socket.on('recording', room => {
+// Recording Stuff
+
+// When the server successfully starts recording
+socket.on('recording started', () => {
     overlayContainer.style.display = "none";
     alert('The host has started recording this session.');
 });
 
-// When server emits stop recording
-socket.on('stop recording', room => {
+// When the server stops recording
+socket.on('recording stopped', () => {
     overlayContainer.style.display = "block";
     alert('The host has stopped recording this session.');
 });
+
+// When the recordings are written to the media server disk
+socket.on('recording finished', () => {
+    alert('Recording(s) written to media server disk');
+});
+
+socket.on('recording error', () => {
+    alert('Error: Couldn\'t start recording');
+})
 
 // Callbacks and helpers
 
@@ -166,19 +177,19 @@ function setupRecordInterface() {
         startRecording.disabled = true;
         overlayContainer.style.display = "none";
         
-        socket.emit('recording', roomNumber);
-        Array.from(downloadBlockElements).forEach(element => {
-            element.classList.remove("show");
-            downloadRecording.classList.add('disabled');
-        })
+        socket.emit('start recording', {
+            room: roomNumber,
+            userid: userid,
+        });
+        // Array.from(downloadBlockElements).forEach(element => {
+        //     element.classList.remove("show");
+        //     downloadRecording.classList.add('disabled');
+        // });
 
         // One recorder for each video feed
-        localRec = RecordRTC(localStream, recordingOptions)
+        recording = true;
 
-        remoteRec = RecordRTC(remoteStream, recordingOptions);
-
-        localRec.startRecording();
-        remoteRec.startRecording();
+        recording
 
         dateStarted = new Date().getTime();
         console.log("Started Recording");
@@ -186,7 +197,7 @@ function setupRecordInterface() {
         stopRecording.disabled = false;
 
         (function looper() {
-            if(!localRec) {
+            if(!recording) {
                 return;
             }
             stopRecording.innerHTML = 'Stop Recording (' + calculateTimeDuration((new Date().getTime() - dateStarted) / 1000) + ')';
@@ -196,53 +207,57 @@ function setupRecordInterface() {
     });
     
     stopRecording.addEventListener('click', () => {
-        const zip = new JSZip();
+        recording = false;
 
-        // Zip the videos as two webms
-        let blobs = async.parallel([
-            function(callback) {
-                localRec.stopRecording(() => {
-                    callback(null, localRec.getBlob());
-                    localRec = null;
-                });
-            },
-            function(callback) {
-                remoteRec.stopRecording(() => {
-                    callback(null, remoteRec.getBlob());
-                    remoteRec = null;
-                });
-            }
-        ], 
-        function(err, result) {
-            console.log("Zipping recordings...");
-            zip.folder("recordings").file("yourVideo.webm", result[0]);
-            zip.folder("recordings").file("theirVideo.webm", result[1]);
-            
-            console.log("Generating zip...");
-            zipFile = zip.generateAsync({type: "blob"}, (metadata) => {
-                progressBar.style.width = metadata.percent + '%';
-                progressBar.innerHTML = metadata.percent.toFixed(1) + '%';
-            })
-            .then((file) => {
-                console.log("Generated : ) ready to download");
-                downloadRecording.href = URL.createObjectURL(file);
-                downloadRecording.download = 'recordings.zip';
-                downloadRecording.classList.remove('disabled');
-            })
-            
+        socket.emit('stop recording', {
+            room: roomNumber,
+            userid: userid,
         });
+
+        // const zip = new JSZip();
+
+        // // Zip the videos as two webms
+        // let blobs = async.parallel([
+        //     function(callback) {
+        //         recording.stopRecording(() => {
+        //             callback(null, recording.getBlob());
+        //             recording = null;
+        //         });
+        //     },
+        //     function(callback) {
+        //         remoteRec.stopRecording(() => {
+        //             callback(null, remoteRec.getBlob());
+        //             remoteRec = null;
+        //         });
+        //     }
+        // ], 
+        // function(err, result) {
+        //     console.log("Zipping recordings...");
+        //     zip.folder("recordings").file("yourVideo.webm", result[0]);
+        //     zip.folder("recordings").file("theirVideo.webm", result[1]);
+            
+        //     console.log("Generating zip...");
+        //     zipFile = zip.generateAsync({type: "blob"}, (metadata) => {
+        //         progressBar.style.width = metadata.percent + '%';
+        //         progressBar.innerHTML = metadata.percent.toFixed(1) + '%';
+        //     })
+        //     .then((file) => {
+        //         console.log("Generated : ) ready to download");
+        //         downloadRecording.href = URL.createObjectURL(file);
+        //         downloadRecording.download = 'recordings.zip';
+        //         downloadRecording.classList.remove('disabled');
+        //     })
+            
+        // });
 
         // Update recording interface
         startRecording.disabled = false;
         stopRecording.disabled = true;
         stopRecording.innerHTML = 'Stop Recording';
         
-        Array.from(downloadBlockElements).forEach(element => {
-            element.classList.add("show");
-        })
-        // downloadRecording.style.display = "block";
-
-        socket.emit('stop recording', roomNumber);
+        // Array.from(downloadBlockElements).forEach(element => {
+        //     element.classList.add("show");
+        // })
     });
 }
 

@@ -16,17 +16,23 @@ var userRegistry = new UserRegistry();
 var pipelines = {};
 var candidatesQueue = {};
 var idCounter = 0;
+var recordingCounter = 0;
 
-function nextUniqueId() {
+function nextUniqueUserId() {
     idCounter++;
     return idCounter.toString();
 }
 
+function nextUniqueRecordingId() {
+    recordingCounter++;
+    return recordingCounter.toString();
+}
 
 var argv = minimist(process.argv.slice(2), {
     default: {
         as_uri: 'http://localhost:3000/',
-        ws_uri: 'ws://localhost:8888/kurento'
+        ws_uri: 'ws://localhost:8888/kurento',
+        recording_dir_uri: 'file:///tmp/', // directory where recordings are stored
     }
 });
 
@@ -106,11 +112,22 @@ UserRegistry.prototype.removeById = function(id) {
 // Represents an active call
 function CallMediaPipeline() {
     this.pipeline = null;
-    this.webRtcEndpoint = {};
+    this.webRtcEndpoints = {};
+    this.recorderEndpoints = {};
 }
 
 CallMediaPipeline.prototype.createPipeline = function(callerId, calleeId, callback) {
     var self = this;
+
+    const recording_dir = argv.recording_dir_uri + 'session_' + nextUniqueRecordingId() + '/';
+
+    const elements = [
+        {type: 'RecorderEndpoint', params: {uri: recording_dir + 'recording_' + callerId + '.webm'}},
+        {type: 'RecorderEndpoint', params: {uri: recording_dir + 'recording_' + calleeId + '.webm'}},
+        {type: 'WebRtcEndpoint', params: {}},
+        {type: 'WebRtcEndpoint', params: {}},
+    ]
+
     getKurentoClient(function(error, kurentoClient) {
         if (error) {
             return callback(error);
@@ -121,11 +138,18 @@ CallMediaPipeline.prototype.createPipeline = function(callerId, calleeId, callba
                 return callback(error);
             }
 
-            pipeline.create('WebRtcEndpoint', function(error, callerWebRtcEndpoint) {
-                if (error) {
+            pipeline.create(elements, function(err, elements) {
+                if (err) {
                     pipeline.release();
-                    return callback(error);
+                    return callback(err);
                 }
+
+                const callerRecorderEndpoint = elements[0];
+                const calleeRecorderEndpoint = elements[1];
+                const callerWebRtcEndpoint = elements[2];
+                const calleeWebRtcEndpoint= elements[3];
+
+                // Configure the rtc endpoints
 
                 if (candidatesQueue[callerId]) {
                     while(candidatesQueue[callerId].length) {
@@ -133,61 +157,67 @@ CallMediaPipeline.prototype.createPipeline = function(callerId, calleeId, callba
                         callerWebRtcEndpoint.addIceCandidate(candidate);
                     }
                 }
+                if (candidatesQueue[calleeId]) {
+                    while(candidatesQueue[calleeId].length) {
+                        var candidate = candidatesQueue[calleeId].shift();
+                        calleeWebRtcEndpoint.addIceCandidate(candidate);
+                    }
+                }
 
-                callerWebRtcEndpoint.on('OnIceCandidate', function(event) {
+                callerWebRtcEndpoint.on('OnIceCandidate', emitIceCandidate);
+                calleeWebRtcEndpoint.on('OnIceCandidate', emitIceCandidate);
+
+                function emitIceCandidate(event) {
                     var candidate = kurento.getComplexType('IceCandidate')(event.candidate);
-                    userRegistry.getById(callerId).socket.emit('candidate', {
+                    userRegistry.getById(calleeId).socket.emit('candidate', {
                         candidate: candidate,
                     });
-                });
+                };
 
-                pipeline.create('WebRtcEndpoint', function(error, calleeWebRtcEndpoint) {
-                    if (error) {
+                // Connect the elements
+
+                callerWebRtcEndpoint.connect(calleeWebRtcEndpoint, function(err) {
+                    if (err) {
                         pipeline.release();
-                        return callback(error);
+                        return callback(err);
                     }
 
-                    if (candidatesQueue[calleeId]) {
-                        while(candidatesQueue[calleeId].length) {
-                            var candidate = candidatesQueue[calleeId].shift();
-                            calleeWebRtcEndpoint.addIceCandidate(candidate);
-                        }
-                    }
-
-                    calleeWebRtcEndpoint.on('OnIceCandidate', function(event) {
-                        var candidate = kurento.getComplexType('IceCandidate')(event.candidate);
-                        userRegistry.getById(calleeId).socket.emit('candidate', {
-                            candidate: candidate,
-                        });
-                    });
-
-                    callerWebRtcEndpoint.connect(calleeWebRtcEndpoint, function(error) {
-                        if (error) {
+                    calleeWebRtcEndpoint.connect(callerWebRtcEndpoint, function(err) {
+                        if (err) {
                             pipeline.release();
-                            return callback(error);
+                            return callback(err);
                         }
 
-                        calleeWebRtcEndpoint.connect(callerWebRtcEndpoint, function(error) {
-                            if (error) {
+                        callerWebRtcEndpoint.connect(callerRecorderEndpoint, function(err) {
+                            if (err) {
                                 pipeline.release();
-                                return callback(error);
+                                return callback(err);
                             }
-                        });
 
-                        self.pipeline = pipeline;
-                        self.webRtcEndpoint[callerId] = callerWebRtcEndpoint;
-                        self.webRtcEndpoint[calleeId] = calleeWebRtcEndpoint;
-                        callback(null);
-                    });
-                });
+                            calleeWebRtcEndpoint.connect(calleeRecorderEndpoint, function(err) {
+                                if (err) {
+                                    pipeline.release();
+                                    return callback(err);
+                                }
+    
+                                self.pipeline = pipeline;
+                                self.webRtcEndpoints[callerId] = callerWebRtcEndpoint;
+                                self.webRtcEndpoints[calleeId] = calleeWebRtcEndpoint;
+                                self.recorderEndpoints[callerId] = callerRecorderEndpoint;
+                                self.recorderEndpoints[calleeId] = calleeRecorderEndpoint;
+                                callback(null);                     
+                            })
+                        })
+                    })
+                })
             });
         });
     })
 }
 
 CallMediaPipeline.prototype.generateSdpAnswer = function(id, sdpOffer, callback) {
-    this.webRtcEndpoint[id].processOffer(sdpOffer, callback);
-    this.webRtcEndpoint[id].gatherCandidates(function(error) {
+    this.webRtcEndpoints[id].processOffer(sdpOffer, callback);
+    this.webRtcEndpoints[id].gatherCandidates(function(error) {
         if (error) {
             return callback(error);
         }
@@ -207,7 +237,7 @@ io.on('connection', socket => {
 
     socket.on('disconnect', () => {
         console.log('a user disconnected');
-        // clean up deleted user
+        // Clean up deleted user
         let userSession = userRegistry.getBySocketId(socket.id);
         if (userSession) {
             userRegistry.removeById(userSession.userid);
@@ -228,8 +258,8 @@ io.on('connection', socket => {
         } else {
             socket.join(roomNumber);
 
-            // Register a new user (i.e. a client)
-            const userid = nextUniqueId();
+            // Register a new user
+            const userid = nextUniqueUserId();
             userRegistry.register(new UserSession(userid, 
                                                   roomNumber, 
                                                   socket));
@@ -239,17 +269,9 @@ io.on('connection', socket => {
                 userid: userid,
                 numClients: numClients + 1 // to account for this new client
             });
-            
 
             console.log('Room', roomNumber, 'now has', numClients + 1, 'clients');   
         }
-    });
-
-    // Re-broadcasters
-    
-    // both clients are in the room, start call
-    socket.on('ready', room => {
-        socket.broadcast.to(room).emit('ready');
     });
 
     // Store a client's generated SDP offer and connect the call if both clients 
@@ -262,27 +284,31 @@ io.on('connection', socket => {
             // Pass in the second client's socket
             startCall(event.room, socket);
         }
-        // socket.broadcast.to(event.room).emit('offer', event);
     });
 
     // broadcast an ice candidate to the other client
     socket.on('candidate', event => {
-        console.log('Processing an ICE candidate from', event.userid);
         onIceCandidate(event.userid, event.candidate);
-        // socket.broadcast.to(event.room).emit('candidate', event);
+    });
+ 
+    // both clients are in the room, currently does nothing
+    socket.on('ready', room => {
+        socket.broadcast.to(room).emit('ready');
     });
     
     // Recording stuff, broadcasted to all clients
-    socket.on('recording', room => {
-        socket.to(room).emit('recording', room);
+    socket.on('start recording', event => {
+        startRecording(event.room, event.userid);
     });
 
-    socket.on('stop recording', room => {
-        socket.to(room).emit('stop recording', room);
+    socket.on('stop recording', event => {
+        socket.broadcast.to(event.room).emit('recording stopped', event.room);
+        stopRecording(event.room, event.userid);
     });
 });
 
-// When both clients have joined a room, and they have both emitted SDP offers
+// Builds a media pipeline with the appropriate endpoints and completes 
+// peer negotiation with both clients 
 function startCall(roomNumber, socket) {
     clearCandidatesQueue();
 
@@ -306,7 +332,6 @@ function startCall(roomNumber, socket) {
             return console.log(err);
         }
 
-        console.log("Yahoo");
         pipeline.generateSdpAnswer(caller.userid, caller.sdpOffer, 
             function(err, callerSdpAnswer) {
                 if (err) {
@@ -326,6 +351,8 @@ function startCall(roomNumber, socket) {
                         caller.socket.emit('answer', {
                             sdpOffer: callerSdpAnswer,
                         });
+
+                        socket.broadcast.emit('ready');
                     });
             });
     });
@@ -337,12 +364,112 @@ function clearCandidatesQueue(sessionId) {
     }
 }
 
+function startRecording(room, userid) {
+    console.log('Starting a recording');
+    const userA = userRegistry.getByRoom(room)[0];
+    const userB = userRegistry.getByRoom(room)[1];
+
+    // Socket of user that requested start recording
+    const socket = userRegistry.getById(userid).socket;
+
+    // Check there aren't any missing recording elements in the pipeline
+    if (pipelines[userA.userid] 
+        && pipelines[userA.userid].recorderEndpoints 
+        && pipelines[userA.userid].recorderEndpoints[userA.userid]) {
+
+        pipelines[userA.userid].recorderEndpoints[userA.userid].record(function(err) {
+            if (err) return console.log(err);
+            userA.socket.to(room).emit('recording successful');
+        });
+    } else {
+        socket.emit('recording error');
+    }
+
+    if (pipelines[userB.userid] 
+        && pipelines[userB.userid].recorderEndpoints 
+        && pipelines[userB.userid].recorderEndpoints[userB.userid]) {
+
+        pipelines[userB.userid].recorderEndpoints[userB.userid].record(function(err) {  
+            if (err) return console.log(err);
+            socket.to(room).emit('recording started');
+        });
+    } else {
+        socket.emit('recording error');
+    }
+}
+
+function stopRecording(room, userid) {
+    console.log('Stopping recording...');
+    const userA = userRegistry.getByRoom(room)[0];
+    const userB = userRegistry.getByRoom(room)[1];
+
+    // Socket of user that requested start recording
+    const socket = userRegistry.getById(userid).socket;
+
+    // Check there aren't any missing recording elements in the pipeline
+    if (pipelines[userA.userid] 
+        && pipelines[userA.userid].recorderEndpoints 
+        && pipelines[userA.userid].recorderEndpoints[userA.userid]) {
+
+        // Stop recording and wait until the files are written
+        pipelines[userA.userid].recorderEndpoints[userA.userid].stopAndWait(function(err) {
+            if (err) return console.log(err);
+
+            if (pipelines[userB.userid] 
+                && pipelines[userB.userid].recorderEndpoints 
+                && pipelines[userB.userid].recorderEndpoints[userB.userid]) {
+        
+                // Stop recording and wait until the files are written
+                pipelines[userB.userid].recorderEndpoints[userB.userid].stopAndWait(function(err) {
+                    if (err) return console.log(err);
+        
+                    socket.emit('recording finished');
+                });
+            } else {
+                socket.emit('recording error');
+            }
+        });
+    } else {
+        socket.emit('recording error');
+    }
+}
+
+// ToDo: Finish implementation
+// As you cannot update RecorderEndpoint URIs after their creation,
+// this function is intended to simply create new endpoints and do all the 
+// necessary configuration
+function updateRecorderUris(callMediaPipeline) {
+    const recording_dir = argv.recording_dir_uri + 'session_' + nextUniqueRecordingId() + '/';    
+
+    pipeline = callMediaPipeline.pipeline;
+
+    const elements = [
+        {type: 'RecorderEndpoint', params: {uri: argv.recording_dir_uri + 'recording_' + callerId + '.webm'}},
+        {type: 'RecorderEndpoint', params: {uri: argv.recording_dir_uri + 'recording_' + calleeId + '.webm'}},
+    ];
+
+    pipeline.create(elements, function(err, elements) {
+        if (err) {
+            pipeline.release();
+            return console.log(err);
+        }
+
+        const callerRecorderEndpoint = elements[0];
+        const calleeRecorderEndpoint = elements[1];
+
+        // calleeRec
+    });
+}
+
 // Store an ICE candidate sent to us by a client
 function onIceCandidate(userid, _candidate) {
     var candidate = kurento.getComplexType('IceCandidate')(_candidate);
     var user = userRegistry.getById(userid);
 
-    if (pipelines[user.id] && pipelines[user.userid].webRtcEndpoint && pipelines[user.id].webRtcEndpoint[user.id]) {
+    if (pipelines[user.id] 
+        && pipelines[user.userid].webRtcEndpoint 
+        && pipelines[user.id].webRtcEndpoint[user.id]) {
+
         var webRtcEndpoint = pipelines[user.userid].webRtcEndpoint[user.userid];
         webRtcEndpoint.addIceCandidate(candidate);
     }
