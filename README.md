@@ -1,11 +1,18 @@
 # backchanneling-interface
 
 To start, run `npm install` to install dependencies.
+You'll have to also run `bower install kurento-utils` to seperately install that package.
+
+
+### Kurento media server
 
 Run `docker run -d -p 8888:8888 kurento/kurento-media-server:6.6.0` as well to start a media
 server in a docker image. You may need to run `systemctl start docker` beforehand or add `sudo`.
 
-Then, `npm start` starts the server on localhost:3000.
+Alternatively, you can host a KMS anywhere you'd like, e.g. an EC2 instance. Either way, you have to specify
+the ws_uri when launching the application server by adding `--ws_uri="..."` to the startup command.
+
+Then, `node server.js` starts the server on localhost:3000.
 You can use a tool like ngrok to get a publicly facing url ([ngrok tutorial](https://gist.github.com/wosephjeber/aa174fb851dfe87e644e)).                                           
 Note: To access clients' mics and cameras, you will need to go to the ngrok site in https.
 

@@ -29,6 +29,7 @@ function nextUniqueRecordingId() {
     return recordingCounter.toString();
 }
 
+// URI args, to set an arg in the command line, add --as_uri="..." for your command for example
 var argv = minimist(process.argv.slice(2), {
     default: {
         as_uri: 'http://localhost:3000/',
@@ -124,12 +125,6 @@ CallMediaPipeline.prototype.createPipeline = function(callerId, calleeId, callba
 
     const recording_dir = argv.recording_dir_uri + 'session_' + nextUniqueRecordingId() + '/';
 
-    const elements = [
-        {type: 'RecorderEndpoint', params: {uri: recording_dir + 'recording_' + callerId + '.webm'}},
-        {type: 'RecorderEndpoint', params: {uri: recording_dir + 'recording_' + calleeId + '.webm'}},
-        {type: 'WebRtcEndpoint', params: {}},
-        {type: 'WebRtcEndpoint', params: {}},
-    ]
 
     getKurentoClient(function(error, kurentoClient) {
         if (error) {
@@ -141,18 +136,11 @@ CallMediaPipeline.prototype.createPipeline = function(callerId, calleeId, callba
                 return callback(error);
             }
 
-            pipeline.create(elements, function(err, elements) {
-                if (err) {
+            pipeline.create('WebRtcEndpoint', function(error, callerWebRtcEndpoint) {
+                if (error) {
                     pipeline.release();
-                    return callback(err);
+                    return callback(error);
                 }
-
-                const callerRecorderEndpoint = elements[0];
-                const calleeRecorderEndpoint = elements[1];
-                const callerWebRtcEndpoint = elements[2];
-                const calleeWebRtcEndpoint= elements[3];
-
-                // Configure the rtc endpoints
 
                 if (candidatesQueue[callerId]) {
                     while(candidatesQueue[callerId].length) {
@@ -160,65 +148,102 @@ CallMediaPipeline.prototype.createPipeline = function(callerId, calleeId, callba
                         callerWebRtcEndpoint.addIceCandidate(candidate);
                     }
                 }
-                if (candidatesQueue[calleeId]) {
-                    while(candidatesQueue[calleeId].length) {
-                        var candidate = candidatesQueue[calleeId].shift();
-                        calleeWebRtcEndpoint.addIceCandidate(candidate);
-                    }
-                }
 
-                callerWebRtcEndpoint.on('OnIceCandidate', emitIceCandidate);
-                calleeWebRtcEndpoint.on('OnIceCandidate', emitIceCandidate);
-
-                function emitIceCandidate(event) {
+                callerWebRtcEndpoint.on('OnIceCandidate', function(event) {
                     var candidate = kurento.getComplexType('IceCandidate')(event.candidate);
-                    userRegistry.getById(calleeId).socket.emit('candidate', {
+                    userRegistry.getById(callerId).socket.emit('candidate', {
                         candidate: candidate,
                     });
-                };
+                });
 
-                // Connect the elements
-
-                callerWebRtcEndpoint.connect(calleeWebRtcEndpoint, function(err) {
-                    if (err) {
+                pipeline.create('WebRtcEndpoint', function(error, calleeWebRtcEndpoint) {
+                    if (error) {
                         pipeline.release();
-                        return callback(err);
+                        return callback(error);
                     }
 
-                    calleeWebRtcEndpoint.connect(callerWebRtcEndpoint, function(err) {
-                        if (err) {
+                    if (candidatesQueue[calleeId]) {
+                        while(candidatesQueue[calleeId].length) {
+                            var candidate = candidatesQueue[calleeId].shift();
+                            calleeWebRtcEndpoint.addIceCandidate(candidate);
+                        }
+                    }
+
+                    calleeWebRtcEndpoint.on('OnIceCandidate', function(event) {
+                        var candidate = kurento.getComplexType('IceCandidate')(event.candidate);
+                        userRegistry.getById(calleeId).socket.emit('candidate', {
+                            candidate: candidate,
+                        });
+                    });
+
+                    let recordingParams = { 
+                        uri: recording_dir + 'recording_' + callerId + '.mp4', 
+                        stopOnEndOfStream: true, 
+                        mediaProfile: 'MP4',
+                    }
+
+                    pipeline.create('RecorderEndpoint', recordingParams, function(error, callerRecorderEndpoint) {
+                        if (error) {
                             pipeline.release();
-                            return callback(err);
+                            return callback(error);
                         }
 
-                        callerWebRtcEndpoint.connect(callerRecorderEndpoint, function(err) {
-                            if (err) {
-                                pipeline.release();
-                                return callback(err);
-                            }
+                        recordingParams = { 
+                            uri: recording_dir + 'recording_' + calleeId + '.mp4', 
+                            stopOnEndOfStream: true, 
+                            mediaProfile: 'MP4',
+                        }
 
-                            calleeWebRtcEndpoint.connect(calleeRecorderEndpoint, function(err) {
+                        pipeline.create('RecorderEndpoint', recordingParams, function(error, calleeRecorderEndpoint) {
+                            if (error) {
+                                pipeline.release();
+                                return callback(error);
+                            }
+                            
+                            callerWebRtcEndpoint.connect(calleeWebRtcEndpoint, function(err) {
                                 if (err) {
                                     pipeline.release();
                                     return callback(err);
                                 }
-    
-                                self.pipeline = pipeline;
-                                self.webRtcEndpoints[callerId] = callerWebRtcEndpoint;
-                                self.webRtcEndpoints[calleeId] = calleeWebRtcEndpoint;
-                                self.recorderEndpoints[callerId] = callerRecorderEndpoint;
-                                self.recorderEndpoints[calleeId] = calleeRecorderEndpoint;
-                                callback(null);                     
-                            })
-                        })
-                    })
-                })
+            
+                                calleeWebRtcEndpoint.connect(callerWebRtcEndpoint, function(err) {
+                                    if (err) {
+                                        pipeline.release();
+                                        return callback(err);
+                                    }
+            
+                                    callerWebRtcEndpoint.connect(callerRecorderEndpoint, function(err) {
+                                        if (err) {
+                                            pipeline.release();
+                                            return callback(err);
+                                        }
+            
+                                        calleeWebRtcEndpoint.connect(calleeRecorderEndpoint, function(err) {
+                                            if (err) {
+                                                pipeline.release();
+                                                return callback(err);
+                                            }
+                
+                                            self.pipeline = pipeline;
+                                            self.webRtcEndpoints[callerId] = callerWebRtcEndpoint;
+                                            self.webRtcEndpoints[calleeId] = calleeWebRtcEndpoint;
+                                            self.recorderEndpoints[callerId] = callerRecorderEndpoint;
+                                            self.recorderEndpoints[calleeId] = calleeRecorderEndpoint;
+                                            callback(null);                     
+                                        });
+                                    });
+                                });
+                            });
+                        });
+                    });
+                });
             });
         });
     })
 }
 
 CallMediaPipeline.prototype.generateSdpAnswer = function(id, sdpOffer, callback) {
+    console.log('Processing SDP offer from', id);
     this.webRtcEndpoints[id].processOffer(sdpOffer, callback);
     this.webRtcEndpoints[id].gatherCandidates(function(error) {
         if (error) {
@@ -280,7 +305,7 @@ io.on('connection', socket => {
     // Store a client's generated SDP offer and connect the call if both clients 
     // are ready
     socket.on('offer', event => {
-        console.log('Processing an SDP offer from', event.userid);
+        console.log('Got an SDP offer from', event.userid);
         userRegistry.getById(event.userid).sdpOffer = event.sdpOffer;
 
         if (userRegistry.getByRoom(event.room).length > 1) {
@@ -500,7 +525,6 @@ function getKurentoClient(callback) {
         callback(null, kurentoClient);
     });
 }
-
 
 
 // listener
