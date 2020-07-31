@@ -17,7 +17,6 @@
   padding-top: 75%;
   height: 0px;
   position: relative;
-  z-index: 1;
 }
 
 video {
@@ -36,7 +35,6 @@ video {
   display: block;
   width: calc(100% - 30px);
   height: 100%;
-  z-index: 2;
 }
 
 #video-overlay {
@@ -47,12 +45,13 @@ video {
   width: auto;
 }
 
-#friends-video-container {
+#your-video-container {
   position: absolute;
   bottom: 0;
   right: 0;
   width: 20%;
   height: 20%;
+  z-index: 3;
 }
 
 /* Buttons/Interface Stuff */
