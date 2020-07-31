@@ -15,21 +15,18 @@ const overlayContainer = document.getElementById('overlay-container');
 const recordingBlockElements = document.getElementsByClassName('recording-block');
 // const downloadBlockElements = document.getElementsByClassName('download-block');
 
+// Updated when room list is sorted
+var roomList = document.getElementById('room-list');
+
 // Global vars
 
-var roomNumber;
-var localStream;
-var remoteStream;
-var rtcPeerConnection;
-
-var recording;
-var remoteRec;
-var dateStarted;
-
-var isCaller;
-
 var userid;
+var roomNumber;
+var rtcPeerConnection;
+var recording; // a boolean
+var dateStarted; // start of recording
 
+var roomCounts = {}; // corresponds to room-counts list in DOM
 
 // Constants
 
@@ -75,7 +72,7 @@ joinRoomButton.addEventListener('click', () => {
 // When server emits joined, i.e. a user has joined the room
 socket.on('joined', (event) => {
 
-    console.log('Got joined signal for room', event.roomNumber, 'with', 
+    console.log('Joined room', event.room, 'with', 
         event.numClients, 'clients');
 
     userid = event.userid;
@@ -102,7 +99,7 @@ socket.on('joined', (event) => {
         console.log('sending an offer');
         socket.emit('offer', {
             type: 'offer',
-            room: roomNumber,
+            room: event.room,
             userid: userid,
             sdpOffer: offer,
         });
@@ -131,6 +128,13 @@ socket.on('candidate', event => {
 socket.on('full', room => {
     alert('Room ' + room + ' is full, please join a different room.');
 })
+
+socket.on('room count', event =>  {
+    Object.keys(event.counts).forEach((room) => {
+        updateListEntry(room, event.counts[room]);
+    });
+    // updateListEntry(event.room, event.count);
+});
 
 // Recording Stuff
 
@@ -181,15 +185,8 @@ function setupRecordInterface() {
             room: roomNumber,
             userid: userid,
         });
-        // Array.from(downloadBlockElements).forEach(element => {
-        //     element.classList.remove("show");
-        //     downloadRecording.classList.add('disabled');
-        // });
 
-        // One recorder for each video feed
         recording = true;
-
-        recording
 
         dateStarted = new Date().getTime();
         console.log("Started Recording");
@@ -214,52 +211,62 @@ function setupRecordInterface() {
             userid: userid,
         });
 
-        // const zip = new JSZip();
-
-        // // Zip the videos as two webms
-        // let blobs = async.parallel([
-        //     function(callback) {
-        //         recording.stopRecording(() => {
-        //             callback(null, recording.getBlob());
-        //             recording = null;
-        //         });
-        //     },
-        //     function(callback) {
-        //         remoteRec.stopRecording(() => {
-        //             callback(null, remoteRec.getBlob());
-        //             remoteRec = null;
-        //         });
-        //     }
-        // ], 
-        // function(err, result) {
-        //     console.log("Zipping recordings...");
-        //     zip.folder("recordings").file("yourVideo.webm", result[0]);
-        //     zip.folder("recordings").file("theirVideo.webm", result[1]);
-            
-        //     console.log("Generating zip...");
-        //     zipFile = zip.generateAsync({type: "blob"}, (metadata) => {
-        //         progressBar.style.width = metadata.percent + '%';
-        //         progressBar.innerHTML = metadata.percent.toFixed(1) + '%';
-        //     })
-        //     .then((file) => {
-        //         console.log("Generated : ) ready to download");
-        //         downloadRecording.href = URL.createObjectURL(file);
-        //         downloadRecording.download = 'recordings.zip';
-        //         downloadRecording.classList.remove('disabled');
-        //     })
-            
-        // });
-
         // Update recording interface
         startRecording.disabled = false;
         stopRecording.disabled = true;
         stopRecording.innerHTML = 'Stop Recording';
-        
-        // Array.from(downloadBlockElements).forEach(element => {
-        //     element.classList.add("show");
-        // })
     });
 }
+
+function updateListEntry(room, count) {
+    // If count is zero, then we need to remove the corresponding room list item
+    console.log('room, count');
+    console.log(room, count);
+
+    let child = document.getElementById('room-' + room);
+    if (child) {
+        roomList.removeChild(child);
+    }
+
+    if (count > 0) {
+        let child = document.createElement('li');
+        child.textContent = 'Room ' + room;
+        child.id = 'room-' + room;
+        child.className = 'list-group-item d-flex justify-content-between align-items-center';
+        let childSpan = document.createElement('span');
+        childSpan.className = 'badge badge-primary badge-pill';
+        childSpan.textContent = count;
+        child.appendChild(childSpan);
+        roomList.appendChild(child);
+
+        sortList(roomList);
+    }
+}
+
+// html ul element sorting function from stack overflow
+function sortList(ul){
+    var new_ul = ul.cloneNode(false);
+
+    // Add all lis to an array
+    var lis = [];
+    for(var i = ul.childNodes.length; i--;){
+        if(ul.childNodes[i].nodeName === 'LI')
+            lis.push(ul.childNodes[i]);
+    }
+
+    // Sort the lis in descending order
+    lis.sort(function(a, b){
+       return parseInt(b.childNodes[0].data , 10) - 
+              parseInt(a.childNodes[0].data , 10);
+    });
+
+    // Add them into the ul in order
+    for(var i = 0; i < lis.length; i++)
+        new_ul.appendChild(lis[i]);
+    ul.parentNode.replaceChild(new_ul, ul);
+    roomList = new_ul;
+}
+
 
 // From recordRTC duration demo
 function calculateTimeDuration(secs) {

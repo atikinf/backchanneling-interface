@@ -16,7 +16,10 @@ var kurentoClient = null;
 var userRegistry = new UserRegistry();
 var pipelines = {};
 var candidatesQueue = {};
-var idCounter = 0;
+var roomUserCounts = {};
+
+// IdCounters
+var idCounter = 0; // userIds
 var recordingCounter = 0;
 
 function nextUniqueUserId() {
@@ -62,24 +65,6 @@ UserRegistry.prototype.register = function(user) {
     this.usersBySocketId[user.socket.id] = user;
     this.usersByRoom[user.room] = this.usersByRoom[user.room] || [];
     this.usersByRoom[user.room].push(user);
-}
-
-UserRegistry.prototype.unregister = function(id) {
-    var user = this.getById(id);
-    if (user) delete this.usersById[id]
-    if (user && this.getByName(user.name)) delete this.usersByName[user.name];
-    if (user && this.getBySocketId(user.socket.id)) {
-        delete this.usersBySocketId[user.socket.id];
-    }
-    if (user && this.getByRoom(user.room).length) {
-        var i;
-        for (i = 0; i < this.usersByRoom[user.room].length; i++) {
-            if (this.usersByRoom[user.room][i].userid == id) {
-                delete this.usersByRoom[user.room][i];
-                break;
-            }
-        }
-    }
 }
 
 UserRegistry.prototype.getById = function(id) {
@@ -179,7 +164,6 @@ CallMediaPipeline.prototype.createPipeline = function(callerId, calleeId, callba
                     let recordingParams = { 
                         uri: recording_dir + 'recording_' + callerId + '.mp4', 
                         stopOnEndOfStream: true, 
-                        mediaProfile: 'MP4',
                     }
 
                     pipeline.create('RecorderEndpoint', recordingParams, function(error, callerRecorderEndpoint) {
@@ -191,7 +175,6 @@ CallMediaPipeline.prototype.createPipeline = function(callerId, calleeId, callba
                         recordingParams = { 
                             uri: recording_dir + 'recording_' + calleeId + '.mp4', 
                             stopOnEndOfStream: true, 
-                            mediaProfile: 'MP4',
                         }
 
                         pipeline.create('RecorderEndpoint', recordingParams, function(error, calleeRecorderEndpoint) {
@@ -263,42 +246,60 @@ CallMediaPipeline.prototype.release = function() {
 io.on('connection', socket => {
     console.log('a user connected');
 
+    // Emit latest room user-counts to the newly connected socket
+    socket.emit('room count', {
+        counts: roomUserCounts,
+        // room: userSession.room,
+        // count: remainingUsers,
+    });
+
     socket.on('disconnect', () => {
         console.log('a user disconnected');
-        // Clean up deleted user
-        let userSession = userRegistry.getBySocketId(socket.id);
-        if (userSession) {
-            userRegistry.removeById(userSession.userid);
 
-            let remainingUsers = userRegistry.getByRoom(userSession.room).length;
-            console.log('Room', userSession.room, 'now has', 
-                        remainingUsers, 'clients');
-        }
+        // Clean up deleted user
+        cleanUpSocket(socket);
+
         socket.disconnect();
     });
 
-    socket.on('join', roomNumber => {
-        let room = io.sockets.adapter.rooms[roomNumber] || { length: 0 };
-        let numClients = room.length;
+    socket.on('join', room => {
+        let socketRoom = io.sockets.adapter.rooms[room] || { length: 0 };
+        let numClients = socketRoom.length;
         
         if (numClients > 1) {
-            socket.emit('full', roomNumber);
+            socket.emit('full', room);
         } else {
-            socket.join(roomNumber);
+            let userSession = userRegistry.getBySocketId(socket.id);
 
-            // Register a new user
-            const userid = nextUniqueUserId();
-            userRegistry.register(new UserSession(userid, 
-                                                  roomNumber, 
-                                                  socket));
+            if (!userSession || (userSession && userSession.room != room)) {
+                if (userSession) {
+                    // If this socket was previously associated with a different room, clean up
+                    cleanUpSocket(socket);
+                }
 
-            socket.emit('joined', {
-                room: roomNumber,
-                userid: userid,
-                numClients: numClients + 1 // to account for this new client
-            });
+                socket.join(room);
 
-            console.log('Room', roomNumber, 'now has', numClients + 1, 'clients');   
+                // Register a new user
+                const userid = nextUniqueUserId();
+                userRegistry.register(new UserSession(userid, 
+                                                      room, 
+                                                      socket));
+                
+                socket.emit('joined', {
+                    room: room,
+                    userid: userid,
+                    numClients: numClients + 1, // to account for this new client
+                });
+
+                // Emit the updated room user-count to everyone
+                roomUserCounts[room] = numClients + 1;
+
+                io.emit('room count', {
+                    counts: roomUserCounts,
+                });
+
+                console.log('Room', room, 'now has', numClients + 1, 'clients'); 
+            }
         }
     });
 
@@ -337,16 +338,16 @@ io.on('connection', socket => {
 
 // Builds a media pipeline with the appropriate endpoints and completes 
 // peer negotiation with both clients 
-function startCall(roomNumber, socket) {
+function startCall(room, socket) {
     clearCandidatesQueue();
 
     var pipeline = new CallMediaPipeline();
 
     // For the sake of readability, we'll have a caller a callee despite
     // no caller literally initiating a call with a callee
-    let users = userRegistry.getByRoom(roomNumber);
+    let users = userRegistry.getByRoom(room);
     if (users.length < 2) {
-        return console.error('There are only', users.length, 'users in room', roomNumber);
+        return console.error('There are only', users.length, 'users in room', room);
     }
     let caller = users[0];
     let callee = users[1];
@@ -380,7 +381,7 @@ function startCall(roomNumber, socket) {
                             sdpOffer: callerSdpAnswer,
                         });
 
-                        socket.broadcast.emit('ready');
+                        socket.broadcast.to(room).emit('ready');
                     });
             });
     });
@@ -524,6 +525,30 @@ function getKurentoClient(callback) {
         kurentoClient = _kurentoClient;
         callback(null, kurentoClient);
     });
+}
+
+function cleanUpSocket(socket) {
+    let userSession = userRegistry.getBySocketId(socket.id);
+    if (userSession) {
+        // Release associated pipeline
+        if (pipelines[userSession.userid]) {
+            pipelines[userSession.userid].release();
+        }
+        
+        socket.leave(userSession.room);
+        userRegistry.removeById(userSession.userid);
+
+        let remainingUsers = userRegistry.getByRoom(userSession.room).length;
+
+        // Emit the updated room user-count to everyone
+        roomUserCounts[userSession.room] = remainingUsers;
+        io.emit('room count', {
+            counts: roomUserCounts,
+        });
+
+        console.log('Room', userSession.room, 'now has', 
+                    remainingUsers, 'clients');
+    }
 }
 
 
