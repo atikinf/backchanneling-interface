@@ -7,14 +7,17 @@ const joinRoomButton = document.getElementById('join-room-button');
 const roomNumberInput = document.getElementById('room-number-input');
 const yourVideo  = document.getElementById('your-video');
 const friendsVideo = document.getElementById('friends-video');
+const overlayContainer = document.getElementById('overlay-container');
+
 const startRecording = document.getElementById('btn-start-recording');
 const stopRecording = document.getElementById('btn-stop-recording');
 const downloadRecording = document.getElementById('btn-download-recording');
-const overlayContainer = document.getElementById('overlay-container');
-const progressBar = document.getElementById('progress-bar');
-
 const recordingBlockElements = document.getElementsByClassName('recording-block');
 const downloadBlockElements = document.getElementsByClassName('download-block');
+const progressBar = document.getElementById('progress-bar');
+
+// Updated when room list is sorted
+var roomList = document.getElementById('room-list');
 
 // Global vars
 
@@ -28,6 +31,8 @@ var remoteRec;
 var dateStarted;
 
 var isCaller;
+
+var roomCounts = {}; // corresponds to room-counts list in DOM
 
 
 // Constants
@@ -159,10 +164,17 @@ socket.on('candidate', event => {
     rtcPeerConnection.addIceCandidate(candidate);
 });
 
+
 // When server emits full
 socket.on('full', room => {
     alert('Room ' + roomNumber + ' is full, please join a different room.');
 })
+
+socket.on('room count', event =>  {
+    Object.keys(event.counts).forEach((room) => {
+        updateListEntry(room, event.counts[room]);
+    });
+});
 
 // When server emits recording
 socket.on('recording', room => {
@@ -302,6 +314,56 @@ function setupRecordInterface() {
         socket.emit('stop recording', roomNumber);
     });
 }
+
+function updateListEntry(room, count) {
+    // If count is zero, then we need to remove the corresponding room list item
+    console.log('room, count');
+    console.log(room, count);
+
+    let child = document.getElementById('room-' + room);
+    if (child) {
+        roomList.removeChild(child);
+    }
+
+    if (count > 0) {
+        let child = document.createElement('li');
+        child.textContent = 'Room ' + room;
+        child.id = 'room-' + room;
+        child.className = 'list-group-item d-flex justify-content-between align-items-center';
+        let childSpan = document.createElement('span');
+        childSpan.className = 'badge badge-primary badge-pill';
+        childSpan.textContent = count;
+        child.appendChild(childSpan);
+        roomList.appendChild(child);
+
+        sortList(roomList);
+    }
+}
+
+// html ul element sorting function from stack overflow
+function sortList(ul){
+    var new_ul = ul.cloneNode(false);
+
+    // Add all lis to an array
+    var lis = [];
+    for(var i = ul.childNodes.length; i--;){
+        if(ul.childNodes[i].nodeName === 'LI')
+            lis.push(ul.childNodes[i]);
+    }
+
+    // Sort the lis in descending order
+    lis.sort(function(a, b){
+       return parseInt(b.childNodes[0].data , 10) - 
+              parseInt(a.childNodes[0].data , 10);
+    });
+
+    // Add them into the ul in order
+    for(var i = 0; i < lis.length; i++)
+        new_ul.appendChild(lis[i]);
+    ul.parentNode.replaceChild(new_ul, ul);
+    roomList = new_ul;
+}
+
 
 // From recordRTC duration demo
 function calculateTimeDuration(secs) {
