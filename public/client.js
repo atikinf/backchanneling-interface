@@ -34,6 +34,8 @@ var isCaller;
 
 var roomCounts = {}; // corresponds to room-counts list in DOM
 
+var sessionCount = 0
+
 
 // Constants
 
@@ -284,8 +286,14 @@ function setupRecordInterface() {
         ], 
         function(err, result) {
             console.log("Zipping recordings...");
-            zip.folder("recordings").file("yourVideo.webm", result[0]);
-            zip.folder("recordings").file("theirVideo.webm", result[1]);
+            
+            sessionCount++;
+
+            zip.folder(`recording_session_${sessionCount}`)
+                .file(`your_video_session_${sessionCount}.webm`, result[0]);
+                
+            zip.folder(`recording_session_${sessionCount}`)
+                .file(`their_video_session_${sessionCount}.webm`, result[1]);
             
             console.log("Generating zip...");
             zipFile = zip.generateAsync({type: "blob"}, (metadata) => {
@@ -295,7 +303,7 @@ function setupRecordInterface() {
             .then((file) => {
                 console.log("Generated : ) ready to download");
                 downloadRecording.href = URL.createObjectURL(file);
-                downloadRecording.download = 'recordings.zip';
+                downloadRecording.download = `recording_session_${sessionCount}.zip`;
                 downloadRecording.classList.remove('disabled');
             })
             
