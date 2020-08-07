@@ -17,29 +17,23 @@
           <div class="input-group"> 
             <input type="text" class="form-control" id="room-number-input" placeholder="Enter a Room # (Default: 1)" aria-label="Room Number">
             <div class="input-group-append">
-              <button class="btn btn-outline-secondary" type="button" id="join-room-button">Join Room</button>
+              <button class="btn btn-primary" type="button" id="join-room-button">Join Room</button>
             </div>
           </div>
     
-          <br />
-    
-          <div class="recording-block row collapse">
+          <div class="recording-block row collapse top10">
             <div class="col-12">
               <button type="button" class="btn btn-primary btn-block" id="btn-start-recording">Start Recording</button>
             </div>
           </div>
-    
-          <br />
 
-          <div class="recording-block row collapse">
+          <div class="recording-block row collapse top10">
             <div class="col-12">
               <button type="button" class="btn btn-primary btn-block" id="btn-stop-recording" disabled>Stop Recording</button>
             </div>
           </div>
-
-          <br />
     
-          <div class="row download-block collapse">
+          <div class="row download-block collapse top10">
             <div class="col-12">
               <a role="button" class="btn btn-primary btn-block disabled" id="btn-download-recording">Download Recording</a>
             </div>
@@ -51,14 +45,22 @@
             </div>
           </div>
 
-          <br />
-
-          <div class="row">
+          <div class="row top10">
             <div class="col-12">
-              
+              <!-- <h5 class="top10">User Counts</h5> -->
               <ul class="list-group" id="room-list">
                 <!-- Contains room user-counts -->
               </ul>
+            </div>
+          </div>
+
+          <div class="row top10">
+            <div class="col-12">
+              <a class="btn btn-outline-primary btn-block" 
+                 href="https://docs.google.com/document/d/1-bsRXbNSgqJeIGOGYmJuultzHFbW2pDa0NCsHwyH0lM/edit?usp=sharing" 
+                 target="_blank"
+                 role="button">User Study Procedure
+              </a>
             </div>
           </div>
         </div>

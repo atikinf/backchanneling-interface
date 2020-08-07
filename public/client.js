@@ -291,7 +291,7 @@ function setupRecordInterface() {
 
             zip.folder(`recording_session_${sessionCount}`)
                 .file(`your_video_session_${sessionCount}.webm`, result[0]);
-                
+
             zip.folder(`recording_session_${sessionCount}`)
                 .file(`their_video_session_${sessionCount}.webm`, result[1]);
             
@@ -328,12 +328,16 @@ function updateListEntry(room, count) {
     console.log('room, count');
     console.log(room, count);
 
-    let child = document.getElementById('room-' + room);
-    if (child) {
-        roomList.removeChild(child);
+    let prevChild = document.getElementById('room-' + room);
+    if (prevChild) {
+        roomList.removeChild(prevChild);
     }
 
     if (count > 0) {
+        let noUsers = document.getElementById('no-users');
+        if (noUsers) {
+            roomList.removeChild(noUsers);
+        }
         let child = document.createElement('li');
         child.textContent = 'Room ' + room;
         child.id = 'room-' + room;
@@ -345,6 +349,12 @@ function updateListEntry(room, count) {
         roomList.appendChild(child);
 
         sortList(roomList);
+    } else {
+        let noUsers = document.createElement('li');
+        noUsers.textContent = 'No users, yet...';
+        noUsers.id = 'no-users';
+        noUsers.className = 'list-group-item d-flex justify-content-between align-items-center'
+        roomList.appendChild(noUsers);
     }
 }
 
