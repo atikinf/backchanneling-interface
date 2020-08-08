@@ -173,6 +173,7 @@ socket.on('full', room => {
 })
 
 socket.on('room count', event =>  {
+    console.log("Got room count", event.counts);
     Object.keys(event.counts).forEach((room) => {
         updateListEntry(room, event.counts[room]);
     });
@@ -325,16 +326,13 @@ function setupRecordInterface() {
 
 function updateListEntry(room, count) {
     // If count is zero, then we need to remove the corresponding room list item
-    console.log('room, count');
-    console.log(room, count);
-
     let prevChild = document.getElementById('room-' + room);
     if (prevChild) {
         roomList.removeChild(prevChild);
     }
 
-    if (count > 0) {
-        let noUsers = document.getElementById('no-users');
+    let noUsers = document.getElementById('no-users');
+    if (count > 0) {    
         if (noUsers) {
             roomList.removeChild(noUsers);
         }
@@ -349,9 +347,9 @@ function updateListEntry(room, count) {
         roomList.appendChild(child);
 
         sortList(roomList);
-    } else {
-        let noUsers = document.createElement('li');
-        noUsers.textContent = 'No users, yet...';
+    } else if (!noUsers) {
+        noUsers = document.createElement('li');
+        noUsers.textContent = 'No rooms with users, yet...';
         noUsers.id = 'no-users';
         noUsers.className = 'list-group-item d-flex justify-content-between align-items-center'
         roomList.appendChild(noUsers);

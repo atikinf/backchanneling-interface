@@ -6,7 +6,7 @@ const io = require('socket.io')(http);
 app.use(express.static('public'));
 app.use('/scripts', express.static(__dirname + '/node_modules'));
 
-var roomUserCounts = {}; // map from rooms to user counts
+var roomUserCounts = { '0' : 0, }; // map from rooms to user counts
 var socketRooms = {}; // map from sockets to rooms
 
 // Signaling handlers
@@ -19,12 +19,12 @@ io.on('connection', socket => {
 
     socket.on('disconnect', () => {
         console.log('a user disconnected');
-        
+
         if (socketRooms[socket.id]) {
-            roomUserCounts['' + socketRooms[socket.id]] -= 1
+            roomUserCounts[socketRooms[socket.id]] -= 1;
         }
 
-        socket.emit('room count', {
+        io.emit('room count', {
             counts: roomUserCounts,
         });
 
@@ -34,7 +34,6 @@ io.on('connection', socket => {
     socket.on('create or join', room => {
         let myRoom = io.sockets.adapter.rooms[room] || { length: 0};
         let numClients = myRoom.length;
-        console.log(room, 'has', numClients, 'clients');
         
         if (numClients < 2) {
 
@@ -49,7 +48,7 @@ io.on('connection', socket => {
             
             // Standard room-joining procedure
             roomUserCounts[room] = numClients + 1;
-            socketRooms[socket.id] = room
+            socketRooms[socket.id] = room;
 
             if (numClients == 0) {
                 socket.emit('created', room);
@@ -58,9 +57,12 @@ io.on('connection', socket => {
             }
 
             socket.join(room);
+            
             io.emit('room count', {
                 counts: roomUserCounts,
             });
+
+            console.log(room, 'now has', numClients + 1, 'clients');
         } else {
             socket.emit('full', room)
         }
