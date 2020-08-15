@@ -3,6 +3,7 @@
 // Based in part on https://webrtc.ventures/2018/07/tutorial-build-video-conference-application-webrtc-2/
 
 // DOM elements
+const leftContainer = document.getElementById('left-container');
 const joinRoomButton = document.getElementById('join-room-button');
 const roomNumberInput = document.getElementById('room-number-input');
 const yourVideo  = document.getElementById('your-video');
@@ -29,6 +30,7 @@ var rtcPeerConnection;
 var localRec;
 var remoteRec;
 var dateStarted;
+var recording; // bool to indicate whether recording or not
 
 var isCaller;
 
@@ -183,12 +185,14 @@ socket.on('room count', event =>  {
 socket.on('recording', room => {
     overlayContainer.style.display = "none";
     alert('The host has started recording this session.');
+    startRecordingTimer();
 });
 
 // When server emits stop recording
 socket.on('stop recording', room => {
     overlayContainer.style.display = "block";
     alert('The host has stopped recording this session.');
+    endRecordingTimer();
 });
 
 // Callbacks and helpers
@@ -324,6 +328,43 @@ function setupRecordInterface() {
     });
 }
 
+function startRecordingTimer() {
+    recordingTimerRow = document.createElement('div');
+    recordingTimerRow.id = 'recording-timer-row';
+    recordingTimerRow.className = 'row top10';
+
+    recordingTimerCol = document.createElement('div');
+    recordingTimerCol.className = 'col-12';
+    recordingTimerRow.appendChild(recordingTimerCol);
+
+    recordingTimer = document.createElement('button');
+    recordingTimer.setAttribute('disabled', '');
+    recordingTimer.id = 'recording-timer';
+    recordingTimer.className = 'btn btn-primary btn-block';
+    recordingTimerCol.appendChild(recordingTimer)
+
+    leftContainer.appendChild(recordingTimerRow);
+
+    dateStarted = new Date().getTime();
+    
+    recording = true;
+
+    (function looper() {
+        if(!recording) {
+            return;
+        }
+        recordingTimer.innerHTML = 'Recording Length (' + calculateTimeDuration((new Date().getTime() - dateStarted) / 1000) + ')';
+
+        setTimeout(looper, 1000);
+    })();
+}
+
+function endRecordingTimer() {
+    recording = false;
+    recordingTimer = document.getElementById('recording-timer-row');
+    leftContainer.removeChild(recordingTimer);
+}
+
 function updateListEntry(room, count) {
     // If count is zero, then we need to remove the corresponding room list item
     let prevChild = document.getElementById('room-' + room);
@@ -351,7 +392,7 @@ function updateListEntry(room, count) {
         noUsers = document.createElement('li');
         noUsers.textContent = 'No rooms with users, yet...';
         noUsers.id = 'no-users';
-        noUsers.className = 'list-group-item d-flex justify-content-between align-items-center'
+        noUsers.className = 'list-group-item d-flex justify-content-between align-items-center';
         roomList.appendChild(noUsers);
     }
 }
