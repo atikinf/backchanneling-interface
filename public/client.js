@@ -310,6 +310,8 @@ function setupRecordInterface() {
                 downloadRecording.href = URL.createObjectURL(file);
                 downloadRecording.download = `recording_session_${sessionCount}.zip`;
                 downloadRecording.classList.remove('disabled');
+
+                downloadRecording.click();
             })
             
         });
